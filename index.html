@@ -21,8 +21,9 @@
     --felt-2: #123626;
     --felt-3: #17402D;
     --line: rgba(239,234,216,0.12);
-    --brass: #C7A248;
+    --brass: #CBB166;
     --brass-dim: #7d6a34;
+    --brass-light: #F5E8A8;
     --chalk: #EFEAD8;
     --muted: #93a89c;
     --win: #6FA98A;
@@ -32,7 +33,7 @@
   body{
     margin:0; background: var(--ink); color: var(--chalk);
     font-family:'IBM Plex Sans', sans-serif;
-    padding-top: 78px;
+    padding-top: 128px;
     padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
     min-height:100vh;
   }
@@ -71,6 +72,10 @@
     font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:15px;
     letter-spacing:3px; text-transform:uppercase; color: var(--brass); margin:0 0 6px;
     text-shadow: 0 0 14px rgba(199,162,72,.4);
+  }
+  .toteboard-banner{
+    display:block; width:160px; max-width:55%; height:auto; margin:0 auto 6px;
+    filter: drop-shadow(0 0 12px rgba(199,162,72,.3));
   }
   .toteboard-strip{ display:flex; gap:8px; }
   .toteboard-cell{
@@ -218,6 +223,7 @@
   .auth-gate{ position:fixed; inset:0; z-index:9999; background:var(--ink); display:flex; align-items:center; justify-content:center; padding:20px; }
   .auth-box{ width:100%; max-width:360px; background:var(--felt-2); border:1px solid var(--line); border-radius:10px; padding:22px; }
   .auth-logo{ font-family:'Barlow Condensed', sans-serif; font-weight:700; letter-spacing:3px; font-size:22px; color:var(--brass); text-align:center; margin-bottom:18px; }
+  .auth-logo-img{ display:block; max-width:100%; width:220px; height:auto; margin:0 auto 18px; filter: drop-shadow(0 0 18px rgba(199,162,72,.3)); }
   .auth-tabs{ display:flex; gap:8px; margin-bottom:16px; }
   .auth-tab{ flex:1; font-family:'Barlow Condensed', sans-serif; font-size:13px; letter-spacing:1px; font-weight:700; text-transform:uppercase; padding:9px; border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; }
   .auth-tab.active{ border-color:var(--brass); color:var(--brass); }
@@ -313,7 +319,7 @@
 <body>
 <div id="authGate" class="auth-gate">
   <div class="auth-box">
-    <div class="auth-logo">MLSYND</div>
+    <img src="/banner.png" alt="MLSynd" class="auth-logo-img">
     <div id="authFormWrap">
       <div class="auth-tabs">
         <button type="button" class="auth-tab active" id="authTabLogin">Log in</button>
@@ -341,7 +347,7 @@
 
   <div class="toteboard">
     <div class="toteboard-inner">
-      <p class="toteboard-name">MLSynd Ledger</p>
+      <img src="/banner.png" alt="MLSynd" class="toteboard-banner">
       <div class="toteboard-strip">
         <div class="toteboard-cell" id="tbBankCell"><span class="lbl">Bank</span><span class="val" id="tbBank">$0</span></div>
         <div class="toteboard-cell" id="tbPotCell"><span class="lbl">Bonus pot</span><span class="val" id="tbPot">$0</span></div>
@@ -511,6 +517,9 @@
         <div class="hint">Dashboard only can view the dashboard but can't open this Ledger app. Full access can use both.</div>
         <div id="approvedUsersArea"><div class="empty">Loading…</div></div>
       </div>
+    </div>
+
+    <div class="tab-panel" id="tab-tippingadmin">
       <div class="panel">
         <h2>Tipping Squad</h2>
         <div class="hint">Everyone with tipping access, whether they want in or not — tap a name's button to add or remove them from the tipping squad specifically, separate from their app access.</div>
@@ -545,6 +554,7 @@
     <button class="tab-btn" data-tab="squad"><span class="icon">👥</span>Squad</button>
     <button class="tab-btn" data-tab="slips"><span class="icon">📎</span>Slips</button>
     <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;"><span class="icon">🔑</span>Admin</button>
+    <button class="tab-btn" data-tab="tippingadmin" id="tippingAdminTabBtn" style="display:none;"><span class="icon">🏉</span>Tipping</button>
   </nav>
 
 <script>
@@ -778,8 +788,11 @@ async function renderPendingUsers(){
       const sortedSquad = approved.slice().sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
       squadArea.innerHTML = sortedSquad.map(([uid, u]) => {
         const optedOut = u.tippingOptOut === true;
-        return `<div class="roster-row">
-          <span style="flex:1; font-family:'IBM Plex Mono', monospace; color:var(--chalk); font-size:13px;">${escapeHtml(u.name || u.email || '')}</span>
+        return `<div class="roster-row" style="align-items:center;">
+          <span style="flex:1; min-width:0;">
+            <span style="display:block; font-family:'IBM Plex Mono', monospace; color:var(--chalk); font-size:13px;">${escapeHtml(u.name || '(no name)')}</span>
+            <span style="display:block; font-size:10px; color:var(--muted);">${escapeHtml(u.email || '')}</span>
+          </span>
           <button type="button" class="small ${optedOut ? 'secondary' : ''}" data-toggle-tipping-uid="${uid}" data-new-state="${optedOut ? 'false' : 'true'}">${optedOut ? '✕ Not tipping' : '✓ In squad'}</button>
         </div>`;
       }).join('');
@@ -870,7 +883,8 @@ async function loadSubmissionsForRound(round){
     area.innerHTML = sorted.map(([uid, u]) => `
       <div class="pending-user-row" style="padding:8px 0;">
         <div class="pending-user-info">
-          <div class="pending-user-name">${escapeHtml(u.name || u.email || '')}</div>
+          <div class="pending-user-name">${escapeHtml(u.name || '(no name)')}</div>
+          <div class="pending-user-email">${escapeHtml(u.email || '')}</div>
         </div>
         <span class="role-badge ${submitted[uid] ? 'role-tipping' : 'role-dashboard'}">${submitted[uid] ? 'Submitted' : 'Not yet'}</span>
       </div>`).join('');
@@ -907,6 +921,7 @@ async function checkApprovalAndProceed(){
       hideAuthGate();
       if(auth.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()){
         document.getElementById('adminTabBtn').style.display = '';
+        document.getElementById('tippingAdminTabBtn').style.display = '';
         renderPendingUsers();
         startSmartPolling(renderPendingUsers, 30000);
         loadPrizePot();
