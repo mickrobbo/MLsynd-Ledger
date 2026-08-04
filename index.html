@@ -513,7 +513,7 @@
       </div>
       <div class="panel">
         <h2>Tipping Squad</h2>
-        <div class="hint">Everyone with tipping access right now — updates automatically as people are approved or removed above. Full, Dashboard, and Tipping-only all count.</div>
+        <div class="hint">Everyone with tipping access, whether they want in or not — tap a name's button to add or remove them from the tipping squad specifically, separate from their app access.</div>
         <div id="tippingSquadArea"><div class="empty">Loading…</div></div>
       </div>
       <div class="panel">
@@ -529,10 +529,9 @@
         <h2>Tipping — who's submitted</h2>
         <div class="hint">Doesn't show what anyone picked — just whether they've tipped for a round yet.</div>
         <div class="row" style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-          <input type="number" id="submissionsRoundInput" min="1" placeholder="Round #" style="flex:1;">
-          <button type="button" id="loadSubmissionsBtn" class="small secondary">Check</button>
+          <select id="submissionsRoundSelect" style="flex:1;"><option value="">Loading rounds…</option></select>
         </div>
-        <div id="tippingSubmissionsArea"><div class="empty">Enter a round number above.</div></div>
+        <div id="tippingSubmissionsArea"><div class="empty">Pick a round above.</div></div>
       </div>
     </div>
 
@@ -777,10 +776,25 @@ async function renderPendingUsers(){
       squadArea.innerHTML = '<div class="empty">No one has tipping access yet.</div>';
     } else {
       const sortedSquad = approved.slice().sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
-      squadArea.innerHTML = sortedSquad.map(([, u]) => `
-        <div class="roster-row">
+      squadArea.innerHTML = sortedSquad.map(([uid, u]) => {
+        const optedOut = u.tippingOptOut === true;
+        return `<div class="roster-row">
           <span style="flex:1; font-family:'IBM Plex Mono', monospace; color:var(--chalk); font-size:13px;">${escapeHtml(u.name || u.email || '')}</span>
-        </div>`).join('');
+          <button type="button" class="small ${optedOut ? 'secondary' : ''}" data-toggle-tipping-uid="${uid}" data-new-state="${optedOut ? 'false' : 'true'}">${optedOut ? '✕ Not tipping' : '✓ In squad'}</button>
+        </div>`;
+      }).join('');
+      squadArea.querySelectorAll('[data-toggle-tipping-uid]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          const optOut = btn.dataset.newState === 'true';
+          await authedFetch(`/users/${btn.dataset.toggleTippingUid}.json`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tippingOptOut: optOut })
+          });
+          showToast(optOut ? 'Removed from tipping' : 'Added to tipping');
+          renderPendingUsers();
+        });
+      });
     }
   }catch(e){
     wrap.innerHTML = '<div class="empty">Could not load users.</div>';
@@ -812,10 +826,31 @@ document.getElementById('savePrizePotBtn').addEventListener('click', async () =>
   }
 });
 
-document.getElementById('loadSubmissionsBtn').addEventListener('click', async () => {
-  const round = document.getElementById('submissionsRoundInput').value;
+async function loadSubmissionsRounds(){
+  const select = document.getElementById('submissionsRoundSelect');
+  try{
+    const res = await fetch('https://mlsynddash.netlify.app/.netlify/functions/afl-fixtures', { cache: 'no-store' });
+    const data = await res.json();
+    const games = data.games || [];
+    const allRounds = [...new Set(games.map(g => g.round))].sort((a, b) => a - b);
+    const openRounds = games.filter(g => g.complete < 100).map(g => g.round);
+    const currentRound = openRounds.length ? Math.min(...openRounds) : Math.max(...allRounds);
+    select.innerHTML = '<option value="">Pick a round</option>' + allRounds.map(r =>
+      `<option value="${r}">Round ${r}${r === currentRound ? ' — current' : ''}</option>`
+    ).join('');
+    select.value = currentRound;
+    loadSubmissionsForRound(currentRound);
+  }catch(e){
+    select.innerHTML = '<option value="">Could not load rounds</option>';
+  }
+}
+document.getElementById('submissionsRoundSelect').addEventListener('change', (e) => {
+  if(e.target.value) loadSubmissionsForRound(e.target.value);
+});
+
+async function loadSubmissionsForRound(round){
   const area = document.getElementById('tippingSubmissionsArea');
-  if(!round){ area.innerHTML = '<div class="empty">Enter a round number above.</div>'; return; }
+  if(!round){ area.innerHTML = '<div class="empty">Pick a round above.</div>'; return; }
   area.innerHTML = '<div class="empty">Loading…</div>';
   try{
     const [usersRes, subsRes] = await Promise.all([
@@ -825,7 +860,7 @@ document.getElementById('loadSubmissionsBtn').addEventListener('click', async ()
     const allUsers = await usersRes.json() || {};
     const submitted = await subsRes.json() || {};
     const eligible = Object.entries(allUsers).filter(([, u]) =>
-      u && u.status === 'approved'
+      u && u.status === 'approved' && u.tippingOptOut !== true
     );
     if(eligible.length === 0){
       area.innerHTML = '<div class="empty">No tipping-eligible people yet.</div>';
@@ -842,7 +877,7 @@ document.getElementById('loadSubmissionsBtn').addEventListener('click', async ()
   }catch(e){
     area.innerHTML = '<div class="empty">Could not load submissions.</div>';
   }
-});
+}
 
 // ---- Gate control ----
 let appStarted = false;
@@ -875,6 +910,7 @@ async function checkApprovalAndProceed(){
         renderPendingUsers();
         startSmartPolling(renderPendingUsers, 30000);
         loadPrizePot();
+        loadSubmissionsRounds();
       }
       if(!appStarted){ appStarted = true; startApp(); }
     } else {
