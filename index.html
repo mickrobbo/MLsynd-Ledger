@@ -325,6 +325,7 @@
       <label class="field">Email<input type="text" id="authEmail" autocomplete="email" inputmode="email"></label>
       <label class="field">Password<input type="password" id="authPassword" autocomplete="current-password"></label>
       <button type="button" id="authSubmitBtn">Log in</button>
+      <div style="text-align:center; margin-top:8px;"><a href="#" id="authForgotLink" style="font-size:11px; color:var(--muted); text-decoration:underline;">Forgot password?</a></div>
       <div class="status-msg" id="authStatus"></div>
     </div>
     <div id="authPendingWrap" style="display:none;">
@@ -610,6 +611,16 @@ async function authSignIn(email, password){
   return auth;
 }
 
+async function authSendPasswordReset(email){
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FB_API_KEY}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestType: 'PASSWORD_RESET', email })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(friendlyAuthError(data.error.message));
+  return true;
+}
+
 async function authRefresh(){
   const cur = authStorageGet();
   if(!cur || !cur.refreshToken) return null;
@@ -828,6 +839,22 @@ function initAuthGate(){
 
   document.getElementById('authSignOutBtn').addEventListener('click', authSignOut);
   document.getElementById('authSignOutBtn2').addEventListener('click', authSignOut);
+
+  document.getElementById('authForgotLink').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('authEmail').value.trim();
+    const statusEl = document.getElementById('authStatus');
+    if(!email){ statusEl.className = 'status-msg error'; statusEl.textContent = 'Enter your email above first, then tap Forgot password.'; return; }
+    statusEl.className = 'status-msg'; statusEl.textContent = 'Sending…';
+    try{
+      await authSendPasswordReset(email);
+      statusEl.className = 'status-msg ok';
+      statusEl.textContent = 'If that email is registered, a reset link is on its way.';
+    }catch(e){
+      statusEl.className = 'status-msg ok';
+      statusEl.textContent = 'If that email is registered, a reset link is on its way.';
+    }
+  });
 
   checkApprovalAndProceed();
 }
