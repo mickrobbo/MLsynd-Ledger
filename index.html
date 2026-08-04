@@ -511,6 +511,29 @@
         <div class="hint">Dashboard only can view the dashboard but can't open this Ledger app. Full access can use both.</div>
         <div id="approvedUsersArea"><div class="empty">Loading…</div></div>
       </div>
+      <div class="panel">
+        <h2>Tipping Squad</h2>
+        <div class="hint">Everyone with tipping access right now — updates automatically as people are approved or removed above. Full, Dashboard, and Tipping-only all count.</div>
+        <div id="tippingSquadArea"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="panel">
+        <h2>Tipping — prize pot</h2>
+        <div class="hint">Shown on the Dashboard's Tipping tab, above the ladder.</div>
+        <div class="row" style="display:flex; gap:8px; align-items:center;">
+          <input type="number" id="prizePotInput" step="1" min="0" placeholder="0" style="flex:1;">
+          <button type="button" id="savePrizePotBtn" class="small">Save</button>
+        </div>
+        <div class="status-msg" id="prizePotStatus"></div>
+      </div>
+      <div class="panel">
+        <h2>Tipping — who's submitted</h2>
+        <div class="hint">Doesn't show what anyone picked — just whether they've tipped for a round yet.</div>
+        <div class="row" style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+          <input type="number" id="submissionsRoundInput" min="1" placeholder="Round #" style="flex:1;">
+          <button type="button" id="loadSubmissionsBtn" class="small secondary">Check</button>
+        </div>
+        <div id="tippingSubmissionsArea"><div class="empty">Enter a round number above.</div></div>
+      </div>
     </div>
 
   </div>
@@ -748,10 +771,78 @@ async function renderPendingUsers(){
         });
       });
     }
+
+    const squadArea = document.getElementById('tippingSquadArea');
+    if(approved.length === 0){
+      squadArea.innerHTML = '<div class="empty">No one has tipping access yet.</div>';
+    } else {
+      const sortedSquad = approved.slice().sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
+      squadArea.innerHTML = sortedSquad.map(([, u]) => `
+        <div class="roster-row">
+          <span style="flex:1; font-family:'IBM Plex Mono', monospace; color:var(--chalk); font-size:13px;">${escapeHtml(u.name || u.email || '')}</span>
+        </div>`).join('');
+    }
   }catch(e){
     wrap.innerHTML = '<div class="empty">Could not load users.</div>';
   }
 }
+
+// ---- Tipping admin: prize pot + submissions ----
+async function loadPrizePot(){
+  try{
+    const res = await authedFetch('/tipping/config/prizePot.json');
+    const val = await res.json();
+    document.getElementById('prizePotInput').value = val != null ? val : '';
+  }catch(e){}
+}
+document.getElementById('savePrizePotBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('prizePotStatus');
+  const input = document.getElementById('prizePotInput');
+  const val = input.value !== '' ? Number(input.value) : 0;
+  try{
+    await authedFetch('/tipping/config/prizePot.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(val)
+    });
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = 'Saved.';
+    showToast('Prize pot updated');
+  }catch(e){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Could not save — try again.';
+  }
+});
+
+document.getElementById('loadSubmissionsBtn').addEventListener('click', async () => {
+  const round = document.getElementById('submissionsRoundInput').value;
+  const area = document.getElementById('tippingSubmissionsArea');
+  if(!round){ area.innerHTML = '<div class="empty">Enter a round number above.</div>'; return; }
+  area.innerHTML = '<div class="empty">Loading…</div>';
+  try{
+    const [usersRes, subsRes] = await Promise.all([
+      authedFetch('/users.json'),
+      authedFetch(`/tipping/submissions/${round}.json`)
+    ]);
+    const allUsers = await usersRes.json() || {};
+    const submitted = await subsRes.json() || {};
+    const eligible = Object.entries(allUsers).filter(([, u]) =>
+      u && u.status === 'approved'
+    );
+    if(eligible.length === 0){
+      area.innerHTML = '<div class="empty">No tipping-eligible people yet.</div>';
+      return;
+    }
+    const sorted = eligible.sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
+    area.innerHTML = sorted.map(([uid, u]) => `
+      <div class="pending-user-row" style="padding:8px 0;">
+        <div class="pending-user-info">
+          <div class="pending-user-name">${escapeHtml(u.name || u.email || '')}</div>
+        </div>
+        <span class="role-badge ${submitted[uid] ? 'role-tipping' : 'role-dashboard'}">${submitted[uid] ? 'Submitted' : 'Not yet'}</span>
+      </div>`).join('');
+  }catch(e){
+    area.innerHTML = '<div class="empty">Could not load submissions.</div>';
+  }
+});
 
 // ---- Gate control ----
 let appStarted = false;
@@ -783,6 +874,7 @@ async function checkApprovalAndProceed(){
         document.getElementById('adminTabBtn').style.display = '';
         renderPendingUsers();
         startSmartPolling(renderPendingUsers, 30000);
+        loadPrizePot();
       }
       if(!appStarted){ appStarted = true; startApp(); }
     } else {
