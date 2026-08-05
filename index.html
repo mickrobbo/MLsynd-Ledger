@@ -1143,7 +1143,7 @@ function computeDerived(m){
   const avgLeg = m.oddsCount > 0 ? m.oddsSum / m.oddsCount : 0;
   const indBets = m.indWin + m.indLoss;
   const indWinPct = indBets > 0 ? m.indWin / indBets : 0;
-  const dataScore = Math.round(((m.pl/25) + (winPct*10) + (indWinPct*5) + (m.legs*0.5) + (avgLeg*1)) * 100) / 100;
+  const dataScore = Math.round(((m.pl/25) + (winPct*10) + (indWinPct*5) + (m.legs*0.5)) * 100) / 100;
   return { winPct, avgLeg, indWinPct, dataScore };
 }
 
