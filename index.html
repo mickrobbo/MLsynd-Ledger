@@ -1485,6 +1485,13 @@ function renderIndividualEntryTable(preserve){
     sel.addEventListener('change', () => {
       renderIndividualEntryTable(readIndividualValues());
       renderGroupEntryTable();
+      scheduleIndDraftSave();
+    });
+  });
+  wrap.querySelectorAll('.ind-outlay, .ind-return').forEach(el => {
+    el.addEventListener('input', () => {
+      indDraftRows = readIndividualValues();
+      scheduleIndDraftSave();
     });
   });
   wrap.querySelectorAll('.ind-remove').forEach(btn => {
@@ -1495,6 +1502,7 @@ function renderIndividualEntryTable(preserve){
       if(current.length === 0) current.push({ name:'', outlay:'50', ret:'' });
       renderIndividualEntryTable(current);
       renderGroupEntryTable();
+      scheduleIndDraftSave();
     });
   });
   document.getElementById('addIndBetBtn').addEventListener('click', () => {
@@ -1502,7 +1510,22 @@ function renderIndividualEntryTable(preserve){
     current.push({ name:'', outlay:'50', ret:'' });
     renderIndividualEntryTable(current);
     renderGroupEntryTable();
+    scheduleIndDraftSave();
   });
+}
+
+let indDraftSaveTimer = null;
+function scheduleIndDraftSave(){
+  clearTimeout(indDraftSaveTimer);
+  indDraftSaveTimer = setTimeout(saveIndividualBetDraft, 800);
+}
+async function saveIndividualBetDraft(){
+  try{
+    await authedFetch('/state/individualBetDraft.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(indDraftRows || [])
+    });
+  }catch(e){}
 }
 
 function renderGroupEntryTable(){
@@ -1613,6 +1636,7 @@ function clearEntryInputs(){
   indDraftRows = [ { name:'', outlay:'50', ret:'' }, { name:'', outlay:'50', ret:'' } ];
   state.groupEntryDraft = {};
   authedFetch('/state/groupEntryDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
+  authedFetch('/state/individualBetDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   renderEntryTable();
   document.getElementById('gLottoOut').value = '80.50';
   document.getElementById('gMultiOut').value = '12.50';
@@ -1899,6 +1923,7 @@ async function init(){
   if(!Array.isArray(state.history)) state.history = [];
   if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
   if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
+  if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
   safeRun('renderRoster', renderRoster);
   safeRun('renderEntryTable', renderEntryTable);
@@ -1953,6 +1978,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(!Array.isArray(state.history)) state.history = [];
     if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
     if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
+    if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
     if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
     safeRun('renderRoster', renderRoster);
     safeRun('renderEntryTable', renderEntryTable);
