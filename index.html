@@ -1550,8 +1550,14 @@ function renderWeeklyIndividualBetsEntry(){
   let html = '';
   for(let row = 0; row < 2; row++){
     const v = existing[row] || {};
-    html += `<div class="fin-row-entry">
-      <select class="wib-name" data-row="${row}">${nameOptionsHtml(v.name || '')}</select>
+    const result = v.result || '';
+    html += `<div class="fin-row-entry" style="display:flex; gap:8px;">
+      <select class="wib-name" data-row="${row}" style="flex:1;">${nameOptionsHtml(v.name || '')}</select>
+      <select class="wib-result" data-row="${row}">
+        <option value=""${result === '' ? ' selected' : ''}>Pending</option>
+        <option value="Win"${result === 'Win' ? ' selected' : ''}>Win</option>
+        <option value="Loss"${result === 'Loss' ? ' selected' : ''}>Loss</option>
+      </select>
     </div>`;
   }
   wrap.innerHTML = html;
@@ -1562,9 +1568,10 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
   const rows = [];
   for(let row = 0; row < 2; row++){
     const nameEl = document.querySelector(`.wib-name[data-row="${row}"]`);
+    const resultEl = document.querySelector(`.wib-result[data-row="${row}"]`);
     const name = nameEl ? nameEl.value : '';
     if(!name) continue;
-    rows.push({ name });
+    rows.push({ name, result: resultEl && resultEl.value ? resultEl.value : null });
   }
   state.weeklyIndividualBets = rows;
   saveState();
