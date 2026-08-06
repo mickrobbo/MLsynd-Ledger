@@ -1603,13 +1603,16 @@ function renderWeeklyIndividualBetsEntry(){
   for(let row = 0; row < 2; row++){
     const v = existing[row] || {};
     const result = v.result || '';
-    html += `<div class="fin-row-entry" style="display:flex; gap:8px;">
+    html += `<div class="fin-row-entry" style="display:flex; gap:8px; align-items:center;">
       <select class="wib-name" data-row="${row}" style="flex:1;">${nameOptionsHtml(v.name || '')}</select>
       <select class="wib-result" data-row="${row}">
         <option value=""${result === '' ? ' selected' : ''}>Pending</option>
         <option value="Win"${result === 'Win' ? ' selected' : ''}>Win</option>
         <option value="Loss"${result === 'Loss' ? ' selected' : ''}>Loss</option>
       </select>
+      <label style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap;">
+        <input type="checkbox" class="wib-sgm" data-row="${row}" ${v.sgm ? 'checked' : ''}> SGM Bonus
+      </label>
     </div>`;
   }
   wrap.innerHTML = html;
@@ -1621,9 +1624,10 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
   for(let row = 0; row < 2; row++){
     const nameEl = document.querySelector(`.wib-name[data-row="${row}"]`);
     const resultEl = document.querySelector(`.wib-result[data-row="${row}"]`);
+    const sgmEl = document.querySelector(`.wib-sgm[data-row="${row}"]`);
     const name = nameEl ? nameEl.value : '';
     if(!name) continue;
-    rows.push({ name, result: resultEl && resultEl.value ? resultEl.value : null });
+    rows.push({ name, result: resultEl && resultEl.value ? resultEl.value : null, sgm: sgmEl ? sgmEl.checked : false });
   }
   state.weeklyIndividualBets = rows;
   saveState();
