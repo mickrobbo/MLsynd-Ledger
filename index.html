@@ -242,6 +242,17 @@
   .role-badge.role-dashboard{ background:rgba(239,234,216,.08); color:var(--muted); border:1px solid var(--line); }
   .role-badge.role-tipping{ background:rgba(111,169,138,.15); color:var(--win); border:1px solid rgba(111,169,138,.4); }
   .pending-user-actions select{ flex:1; min-width:130px; }
+  .role-group{ border-radius:10px; padding:12px 12px 4px; margin-bottom:12px; border:1px solid; }
+  .role-group:last-child{ margin-bottom:0; }
+  .role-group-title{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+  .role-group-count{ font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:400; opacity:.7; }
+  .role-group-full{ background:rgba(199,162,72,.08); border-color:var(--brass-dim); }
+  .role-group-full .role-group-title{ color:var(--brass); }
+  .role-group-dashboard{ background:rgba(239,234,216,.04); border-color:var(--line); }
+  .role-group-dashboard .role-group-title{ color:var(--muted); }
+  .role-group-tipping{ background:rgba(111,169,138,.08); border-color:rgba(111,169,138,.4); }
+  .role-group-tipping .role-group-title{ color:var(--win); }
+  .role-group .pending-user-row{ border-bottom-color:rgba(239,234,216,.08); }
 
   pre#reportText{
     background:#060A08; border:1px solid var(--line); border-radius:6px;
@@ -739,24 +750,38 @@ async function renderPendingUsers(){
     if(approved.length === 0){
       approvedWrap.innerHTML = '<div class="empty">No one approved yet.</div>';
     } else {
-      approvedWrap.innerHTML = approved.map(([uid, u]) => {
-        const role = u.role || 'full';
-        const isSelf = u.email && u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-        return `
-        <div class="pending-user-row">
-          <div class="pending-user-info">
-            <div class="pending-user-name">${escapeHtml(u.name || '(no name)')} <span class="role-badge role-${role}">${roleLabel[role]}</span></div>
-            <div class="pending-user-email">${escapeHtml(u.email || '')}</div>
-          </div>
-          ${isSelf ? '' : `
-          <div class="pending-user-actions">
-            <select data-role-select-uid="${uid}">
-              <option value="full"${role === 'full' ? ' selected' : ''}>Full access</option>
-              <option value="dashboard"${role === 'dashboard' ? ' selected' : ''}>Dashboard only</option>
-              <option value="tipping"${role === 'tipping' ? ' selected' : ''}>Tipping only</option>
-            </select>
-            <button data-remove-uid="${uid}" class="small danger">Remove</button>
-          </div>`}
+      const groups = { full: [], dashboard: [], tipping: [] };
+      approved.forEach(([uid, u]) => { groups[u.role || 'full'].push([uid, u]); });
+      const groupMeta = {
+        full: { title: 'Full Access', cls: 'role-group-full' },
+        dashboard: { title: 'Dashboard Only', cls: 'role-group-dashboard' },
+        tipping: { title: 'Tipping Only', cls: 'role-group-tipping' },
+      };
+      approvedWrap.innerHTML = ['full', 'dashboard', 'tipping'].map(role => {
+        const members = groups[role];
+        if(members.length === 0) return '';
+        const rows = members.map(([uid, u]) => {
+          const isSelf = u.email && u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+          return `
+          <div class="pending-user-row">
+            <div class="pending-user-info">
+              <div class="pending-user-name">${escapeHtml(u.name || '(no name)')}</div>
+              <div class="pending-user-email">${escapeHtml(u.email || '')}</div>
+            </div>
+            ${isSelf ? '' : `
+            <div class="pending-user-actions">
+              <select data-role-select-uid="${uid}">
+                <option value="full"${role === 'full' ? ' selected' : ''}>Full access</option>
+                <option value="dashboard"${role === 'dashboard' ? ' selected' : ''}>Dashboard only</option>
+                <option value="tipping"${role === 'tipping' ? ' selected' : ''}>Tipping only</option>
+              </select>
+              <button data-remove-uid="${uid}" class="small danger">Remove</button>
+            </div>`}
+          </div>`;
+        }).join('');
+        return `<div class="role-group ${groupMeta[role].cls}">
+          <div class="role-group-title">${groupMeta[role].title}<span class="role-group-count">${members.length}</span></div>
+          ${rows}
         </div>`;
       }).join('');
       approvedWrap.querySelectorAll('[data-role-select-uid]').forEach(sel => {
