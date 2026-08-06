@@ -1517,21 +1517,50 @@ function renderGroupEntryTable(){
     wrap.innerHTML = '<div class="empty">Everyone is on an individual bet this week.</div>';
     return;
   }
+  const draft = state.groupEntryDraft || {};
   let html = '';
   state.members.forEach((m, idx) => {
     if(excluded.includes(m.name)) return;
+    const d = draft[m.name] || {};
+    const oddsVal = d.odds != null ? d.odds : '';
     html += `<div class="entry-row">
       <span class="entry-col-name name">${escapeHtml(m.name)}</span>
-      <input type="number" class="wk-odds entry-col-odds" data-idx="${idx}" step="0.01" placeholder="Odds">
-      <select class="wk-result entry-col-result" data-idx="${idx}">
-        <option value="">No bet</option>
-        <option value="Win">Win</option>
-        <option value="Loss">Loss</option>
-        <option value="Void">Void</option>
+      <input type="number" class="wk-odds entry-col-odds" data-idx="${idx}" data-name="${escapeHtml(m.name)}" step="0.01" placeholder="Odds" value="${oddsVal}">
+      <select class="wk-result entry-col-result" data-idx="${idx}" data-name="${escapeHtml(m.name)}">
+        <option value=""${!d.result ? ' selected' : ''}>No bet</option>
+        <option value="Win"${d.result === 'Win' ? ' selected' : ''}>Win</option>
+        <option value="Loss"${d.result === 'Loss' ? ' selected' : ''}>Loss</option>
+        <option value="Void"${d.result === 'Void' ? ' selected' : ''}>Void</option>
       </select>
     </div>`;
   });
   wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.wk-odds, .wk-result').forEach(el => {
+    el.addEventListener('input', () => {
+      const name = el.dataset.name;
+      if(!state.groupEntryDraft[name]) state.groupEntryDraft[name] = {};
+      const oddsEl = wrap.querySelector(`.wk-odds[data-name="${CSS.escape(name)}"]`);
+      const resultEl = wrap.querySelector(`.wk-result[data-name="${CSS.escape(name)}"]`);
+      state.groupEntryDraft[name].odds = oddsEl.value !== '' ? parseFloat(oddsEl.value) : null;
+      state.groupEntryDraft[name].result = resultEl.value || null;
+      scheduleDraftSave();
+    });
+  });
+}
+
+let draftSaveTimer = null;
+function scheduleDraftSave(){
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveGroupEntryDraft, 800);
+}
+async function saveGroupEntryDraft(){
+  try{
+    await authedFetch('/state/groupEntryDraft.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state.groupEntryDraft || {})
+    });
+  }catch(e){}
 }
 
 function renderEntryTable(){
@@ -1582,6 +1611,8 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
 
 function clearEntryInputs(){
   indDraftRows = [ { name:'', outlay:'50', ret:'' }, { name:'', outlay:'50', ret:'' } ];
+  state.groupEntryDraft = {};
+  authedFetch('/state/groupEntryDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   renderEntryTable();
   document.getElementById('gLottoOut').value = '80.50';
   document.getElementById('gMultiOut').value = '12.50';
@@ -1867,6 +1898,7 @@ async function init(){
   if(!state.slips) state.slips = [];
   if(!Array.isArray(state.history)) state.history = [];
   if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
+  if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
   safeRun('renderRoster', renderRoster);
   safeRun('renderEntryTable', renderEntryTable);
@@ -1920,6 +1952,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(!state.slips) state.slips = [];
     if(!Array.isArray(state.history)) state.history = [];
     if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
+    if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
     if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
     safeRun('renderRoster', renderRoster);
     safeRun('renderEntryTable', renderEntryTable);
