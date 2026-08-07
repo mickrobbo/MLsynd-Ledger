@@ -491,6 +491,12 @@
       </div>
 
       <div class="panel">
+        <h2>Badges</h2>
+        <div class="hint">Tick a box to award that badge — shows on their profile on the dashboard (tap their name on the Board).</div>
+        <div id="badgeAwardRows"></div>
+      </div>
+
+      <div class="panel">
         <h2>Money owed</h2>
         <div class="hint">Membership dues, $840/season each. Tap +/− $70 as people pay you a month — it feeds the bank balance and the report automatically.</div>
         <div id="duesArea"></div>
@@ -1386,6 +1392,44 @@ rosterToggle.addEventListener('click', () => {
   rosterEdit.style.display = rosterEdit.style.display === 'none' ? 'block' : 'none';
 });
 
+const BADGE_DEFS = {
+  'first-xi': 'First XI',
+  'go-live': 'Dashboard Go-Live',
+  'tipping-trial': 'Footy Tipping Trial',
+};
+
+function renderBadgeAwards(){
+  const area = document.getElementById('badgeAwardRows');
+  if(!area) return;
+  area.innerHTML = state.members.map((m, idx) => {
+    const badges = Array.isArray(m.badges) ? m.badges : [];
+    const boxes = Object.entries(BADGE_DEFS).map(([id, label]) => `
+      <label style="display:flex; align-items:center; gap:4px; font-size:10.5px; color:var(--muted); white-space:nowrap;">
+        <input type="checkbox" class="badge-award-check" data-idx="${idx}" data-badge="${id}" ${badges.includes(id) ? 'checked' : ''}> ${escapeHtml(label)}
+      </label>
+    `).join('');
+    return `<div class="roster-row" style="flex-direction:column; align-items:flex-start; gap:6px; padding:10px 0; border-bottom:1px solid var(--line);">
+      <div style="font-weight:700; color:var(--chalk);">${escapeHtml(m.name)}</div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap;">${boxes}</div>
+    </div>`;
+  }).join('');
+  area.querySelectorAll('.badge-award-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      const badgeId = cb.dataset.badge;
+      const m = state.members[idx];
+      if(!Array.isArray(m.badges)) m.badges = [];
+      if(cb.checked){
+        if(!m.badges.includes(badgeId)) m.badges.push(badgeId);
+      } else {
+        m.badges = m.badges.filter(b => b !== badgeId);
+      }
+      saveState();
+      showToast(`${cb.checked ? 'Awarded' : 'Removed'} ${BADGE_DEFS[badgeId]} — ${m.name}`);
+    });
+  });
+}
+
 function renderRoster(){
   const area = document.getElementById('rosterRows');
   area.innerHTML = '';
@@ -1412,6 +1456,7 @@ function renderRoster(){
       if(!confirm(`Remove ${state.members[idx].name} from future weekly entries? Their season totals stay saved.`)) return;
       state.members.splice(idx, 1);
       safeRun('renderRoster', renderRoster);
+      safeRun('renderBadgeAwards', renderBadgeAwards);
       safeRun('renderEntryTable', renderEntryTable);
       safeRun('renderLeaderboard', renderLeaderboard);
       safeRun('renderDues', renderDues);
@@ -1424,9 +1469,10 @@ document.getElementById('addMemberBtn').addEventListener('click', async () => {
   const input = document.getElementById('newMemberName');
   const name = input.value.trim();
   if(!name) return;
-  state.members.push({ name, legs:0, wins:0, losses:0, voids:0, indWin:0, indLoss:0, pl:0, oddsSum:0, oddsCount:0, prevRank:null, duesCommitment:840, duesOwed:840 });
+  state.members.push({ name, legs:0, wins:0, losses:0, voids:0, indWin:0, indLoss:0, pl:0, oddsSum:0, oddsCount:0, prevRank:null, duesCommitment:840, duesOwed:840, badges:[] });
   input.value = '';
   safeRun('renderRoster', renderRoster);
+      safeRun('renderBadgeAwards', renderBadgeAwards);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderDues', renderDues);
@@ -1930,6 +1976,7 @@ async function init(){
   if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
   safeRun('renderRoster', renderRoster);
+      safeRun('renderBadgeAwards', renderBadgeAwards);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
   safeRun('renderLeaderboard', renderLeaderboard);
@@ -1985,6 +2032,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
     if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
     safeRun('renderRoster', renderRoster);
+      safeRun('renderBadgeAwards', renderBadgeAwards);
     safeRun('renderEntryTable', renderEntryTable);
     safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -2018,6 +2066,7 @@ document.getElementById('resetSeasonBtn').addEventListener('click', async () => 
   state.lastSnapshot = null;
 
   safeRun('renderRoster', renderRoster);
+      safeRun('renderBadgeAwards', renderBadgeAwards);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
