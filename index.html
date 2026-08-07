@@ -388,6 +388,11 @@
           <input type="number" id="gMultiRet" step="0.01">
         </div>
         <div id="finIndRows"></div>
+        <div class="fin-row-entry single">
+          <span class="fin-row-label">SGM bonus win</span>
+          <input type="number" id="gSgmWin" step="0.01" placeholder="0.00">
+        </div>
+        <div class="hint" style="margin-top:-6px; margin-bottom:10px;">If someone's SGM bonus bet wins, the winnings go straight to the bank — not tied to a person's individual stats since it wasn't real money staked. Leave blank most weeks.</div>
         <div class="fin-row-entry">
           <span class="fin-row-label">Lotto</span>
           <input type="number" id="gLottoOut" step="0.01" value="80.50">
@@ -1198,12 +1203,12 @@ function computeSeasonFinancials(){
     });
   });
   const outlay = g.lottoOut + g.multiOut + indOut;
-  const ret = g.lottoRet + g.multiRet + indRet;
+  const ret = g.lottoRet + g.multiRet + indRet + (g.sgmWin || 0);
   const profitLoss = ret - (outlay + g.bonus);
   const duesCollected = state.members.reduce((s, m) => s + (m.duesCommitment - m.duesOwed), 0);
   const duesOwedTotal = state.members.reduce((s, m) => s + m.duesOwed, 0);
   const bank = duesCollected + profitLoss;
-  return { outlay, ret, profitLoss, bonusPot: g.bonus, duesCollected, duesOwedTotal, bank };
+  return { outlay, ret, profitLoss, bonusPot: g.bonus, sgmWin: g.sgmWin || 0, duesCollected, duesOwedTotal, bank };
 }
 
 // ---------- Bet slips ----------
@@ -1396,6 +1401,8 @@ const BADGE_DEFS = {
   'first-xi': 'First XI',
   'go-live': 'Dashboard Go-Live',
   'tipping-trial': 'Footy Tipping Trial',
+  'cale-hooker': 'Cale Hooker (lowest score ever)',
+  'iykyk': 'IYKYK (last for the year)',
 };
 
 function renderBadgeAwards(){
@@ -1693,6 +1700,7 @@ function clearEntryInputs(){
   document.getElementById('gBonus').value = '10';
   document.getElementById('gLottoRet').value = '';
   document.getElementById('gMultiRet').value = '';
+  document.getElementById('gSgmWin').value = '';
   document.getElementById('weekLabel').value = '';
 }
 
@@ -1764,13 +1772,15 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       lottoRet: parseFloat(document.getElementById('gLottoRet').value) || 0,
       multiOut: parseFloat(document.getElementById('gMultiOut').value) || 0,
       multiRet: parseFloat(document.getElementById('gMultiRet').value) || 0,
-      bonus: parseFloat(document.getElementById('gBonus').value) || 0
+      bonus: parseFloat(document.getElementById('gBonus').value) || 0,
+      sgmWin: parseFloat(document.getElementById('gSgmWin').value) || 0
     };
     state.group.lottoOut += group.lottoOut;
     state.group.lottoRet += group.lottoRet;
     state.group.multiOut += group.multiOut;
     state.group.multiRet += group.multiRet;
     state.group.bonus += group.bonus;
+    state.group.sgmWin = (state.group.sgmWin || 0) + group.sgmWin;
 
     // store prevRank on each member for movement display next render
     state.members.forEach(m => { m.prevRank = prevRankMap[m.name] || null; });
@@ -1825,6 +1835,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   state.group.multiOut -= last.group.multiOut;
   state.group.multiRet -= last.group.multiRet;
   state.group.bonus -= last.group.bonus;
+  state.group.sgmWin = (state.group.sgmWin || 0) - (last.group.sgmWin || 0);
 
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
@@ -1974,7 +1985,7 @@ async function init(){
   if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
   if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
   if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
-  if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
+  if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
   safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
   safeRun('renderEntryTable', renderEntryTable);
@@ -2030,7 +2041,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
     if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
     if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
-    if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
+    if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
     safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
     safeRun('renderEntryTable', renderEntryTable);
@@ -2055,18 +2066,35 @@ document.getElementById('resetSeasonBtn').addEventListener('click', async () => 
   if(!confirm('Reset the whole season to zero? This wipes every member\'s legs, wins, P/L, dues progress, group financials, and saved-week history so you can re-enter from Week 1. This cannot be undone.')) return;
   if(!confirm('Definitely sure? This is your last chance to back out.')) return;
 
+  // Snapshot this season's stats into the archive BEFORE zeroing anything —
+  // this is what lets the Dashboard's profile pages keep a genuine
+  // lifetime, year-on-year running total instead of losing everything the
+  // moment the season resets. Only the per-member counters getLifetimeStats
+  // actually needs get archived, not badges/dues/etc.
+  if(!Array.isArray(state.seasonArchive)) state.seasonArchive = [];
+  state.seasonArchive.push({
+    endedAt: Date.now(),
+    label: `Season ending ${new Date().toLocaleDateString()}`,
+    members: state.members.map(m => ({
+      name: m.name,
+      legs: m.legs, wins: m.wins, losses: m.losses, voids: m.voids,
+      indWin: m.indWin, indLoss: m.indLoss, pl: m.pl,
+      oddsSum: m.oddsSum, oddsCount: m.oddsCount,
+    })),
+  });
+
   state.members.forEach(m => {
     m.legs = 0; m.wins = 0; m.losses = 0; m.voids = 0;
     m.indWin = 0; m.indLoss = 0; m.pl = 0;
     m.oddsSum = 0; m.oddsCount = 0; m.prevRank = null;
     m.duesCommitment = 840; m.duesOwed = 840;
   });
-  state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0 };
+  state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
   state.history = [];
   state.lastSnapshot = null;
 
   safeRun('renderRoster', renderRoster);
-      safeRun('renderBadgeAwards', renderBadgeAwards);
+  safeRun('renderBadgeAwards', renderBadgeAwards);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
@@ -2075,7 +2103,7 @@ document.getElementById('resetSeasonBtn').addEventListener('click', async () => 
   saveState();
 
   status.className = 'status-msg ok';
-  status.textContent = 'Season reset to zero — start saving from Week 1.';
+  status.textContent = 'Season reset to zero and archived — lifetime stats carry over, start saving from Week 1.';
 });
 
 function startApp(){
