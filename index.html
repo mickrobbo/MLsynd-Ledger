@@ -1676,6 +1676,9 @@ function renderWeeklyIndividualBetsEntry(){
           <option value="Win"${sgmResult === 'Win' ? ' selected' : ''}>SGM Win</option>
           <option value="Loss"${sgmResult === 'Loss' ? ' selected' : ''}>SGM Loss</option>
         </select>
+        <input type="number" class="wib-sgm-amount" data-row="${row}" step="0.01" placeholder="Amount"
+          value="${v.sgmAmount != null ? v.sgmAmount : ''}"
+          style="display:${(v.sgm && sgmResult === 'Win') ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
       </div>
     </div>`;
   }
@@ -1684,8 +1687,24 @@ function renderWeeklyIndividualBetsEntry(){
     cb.addEventListener('change', () => {
       const sgmResultSel = wrap.querySelector(`.wib-sgm-result[data-row="${cb.dataset.row}"]`);
       if(sgmResultSel) sgmResultSel.style.display = cb.checked ? 'inline-block' : 'none';
+      updateSgmAmountVisibility(wrap, cb.dataset.row);
     });
   });
+  wrap.querySelectorAll('.wib-sgm-result').forEach(sel => {
+    sel.addEventListener('change', () => updateSgmAmountVisibility(wrap, sel.dataset.row));
+  });
+}
+
+function updateSgmAmountVisibility(wrap, row){
+  // Only show the win amount field when SGM result is actually Win —
+  // a loss stays blank, nothing to enter.
+  const sgmEl = wrap.querySelector(`.wib-sgm[data-row="${row}"]`);
+  const sgmResultEl = wrap.querySelector(`.wib-sgm-result[data-row="${row}"]`);
+  const amountEl = wrap.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
+  if(!amountEl) return;
+  const shouldShow = sgmEl && sgmEl.checked && sgmResultEl && sgmResultEl.value === 'Win';
+  amountEl.style.display = shouldShow ? 'inline-block' : 'none';
+  if(!shouldShow) amountEl.value = '';
 }
 
 document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
@@ -1696,13 +1715,16 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
     const resultEl = document.querySelector(`.wib-result[data-row="${row}"]`);
     const sgmEl = document.querySelector(`.wib-sgm[data-row="${row}"]`);
     const sgmResultEl = document.querySelector(`.wib-sgm-result[data-row="${row}"]`);
+    const sgmAmountEl = document.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
     const name = nameEl ? nameEl.value : '';
     if(!name) continue;
+    const sgmResult = (sgmEl && sgmEl.checked && sgmResultEl && sgmResultEl.value) ? sgmResultEl.value : null;
     rows.push({
       name,
       result: resultEl && resultEl.value ? resultEl.value : null,
       sgm: sgmEl ? sgmEl.checked : false,
-      sgmResult: (sgmEl && sgmEl.checked && sgmResultEl && sgmResultEl.value) ? sgmResultEl.value : null
+      sgmResult,
+      sgmAmount: (sgmResult === 'Win' && sgmAmountEl && sgmAmountEl.value !== '') ? parseFloat(sgmAmountEl.value) : null
     });
   }
   state.weeklyIndividualBets = rows;
