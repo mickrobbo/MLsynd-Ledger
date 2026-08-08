@@ -557,6 +557,15 @@
         <div class="status-msg" id="prizePotStatus"></div>
       </div>
       <div class="panel">
+        <h2>Tipping — competition starts from round</h2>
+        <div class="hint">The ladder only scores this round onward — everything before it is ignored entirely (no auto-tip penalty, nothing). Set to 1 for a normal full season; this trial started at Round 22 so it's set to 22 for now. Change it back to 1 (or whatever the real first round is) at the start of next season.</div>
+        <div class="row" style="display:flex; gap:8px; align-items:center;">
+          <input type="number" id="firstRoundInput" step="1" min="1" placeholder="1" style="flex:1;">
+          <button type="button" id="saveFirstRoundBtn" class="small">Save</button>
+        </div>
+        <div class="status-msg" id="firstRoundStatus"></div>
+      </div>
+      <div class="panel">
         <h2>Tipping — who's submitted</h2>
         <div class="hint">Doesn't show what anyone picked — just whether they've tipped for a round yet.</div>
         <div class="row" style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -875,6 +884,30 @@ document.getElementById('savePrizePotBtn').addEventListener('click', async () =>
   }
 });
 
+async function loadFirstRound(){
+  try{
+    const res = await authedFetch('/tipping/config/firstRound.json');
+    const val = await res.json();
+    document.getElementById('firstRoundInput').value = val != null ? val : 1;
+  }catch(e){}
+}
+document.getElementById('saveFirstRoundBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('firstRoundStatus');
+  const input = document.getElementById('firstRoundInput');
+  const val = input.value !== '' ? Number(input.value) : 1;
+  try{
+    await authedFetch('/tipping/config/firstRound.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(val)
+    });
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = 'Saved.';
+    showToast('Competition start round updated');
+  }catch(e){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Could not save — try again.';
+  }
+});
+
 async function loadSubmissionsRounds(){
   const select = document.getElementById('submissionsRoundSelect');
   try{
@@ -961,6 +994,7 @@ async function checkApprovalAndProceed(){
         renderPendingUsers();
         startSmartPolling(renderPendingUsers, 30000);
         loadPrizePot();
+        loadFirstRound();
         loadSubmissionsRounds();
       }
       if(!appStarted){ appStarted = true; startApp(); }
