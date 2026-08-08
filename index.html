@@ -1607,6 +1607,7 @@ function renderGroupEntryTable(){
         <option value="Win"${d.result === 'Win' ? ' selected' : ''}>Win</option>
         <option value="Loss"${d.result === 'Loss' ? ' selected' : ''}>Loss</option>
         <option value="Void"${d.result === 'Void' ? ' selected' : ''}>Void</option>
+        <option value="MIA"${d.result === 'MIA' ? ' selected' : ''}>MIA</option>
       </select>
     </div>`;
   });
@@ -1751,13 +1752,14 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       const odds = oddsRaw !== '' ? parseFloat(oddsRaw) : null;
       const resultEl = document.querySelector(`.wk-result[data-idx="${idx}"]`);
       const result = resultEl ? resultEl.value : '';
-      const legs = result ? 1 : 0; // fixed: one leg per person in the group bet
+      const legs = (result && result !== 'MIA') ? 1 : 0; // MIA means no leg was actually placed
 
       m.legs += legs;
       if(result === 'Win') m.wins += 1;
       if(result === 'Loss') m.losses += 1;
       if(result === 'Void') m.voids += 1;
-      if(odds !== null && odds > 0){ m.oddsSum += odds; m.oddsCount += 1; }
+      if(result === 'MIA') m.mia = (m.mia || 0) + 1;
+      if(odds !== null && odds > 0 && result !== 'MIA'){ m.oddsSum += odds; m.oddsCount += 1; }
 
       groupEntries[m.name] = { legs, odds, result: result || null };
     });
@@ -1843,7 +1845,8 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
     if(e.result === 'Win') m.wins -= 1;
     if(e.result === 'Loss') m.losses -= 1;
     if(e.result === 'Void') m.voids -= 1;
-    if(e.odds !== null && e.odds > 0){ m.oddsSum -= e.odds; m.oddsCount -= 1; }
+    if(e.result === 'MIA') m.mia = (m.mia || 0) - 1;
+    if(e.odds !== null && e.odds > 0 && e.result !== 'MIA'){ m.oddsSum -= e.odds; m.oddsCount -= 1; }
   });
   Object.entries(last.individualEntries || {}).forEach(([name, e]) => {
     const m = state.members.find(mm => mm.name === name);
