@@ -530,6 +530,24 @@
 
     <div class="tab-panel" id="tab-admin">
       <div class="panel">
+        <h2>Backup</h2>
+        <div class="hint">Downloads everything — dues, bets, tipping history, badges, the lot — as a single file. Worth doing every so often, especially before a season reset. If anything ever goes wrong with the live data, this is the only way back.</div>
+        <button type="button" id="downloadBackupBtn">⬇️ Download backup</button>
+        <div class="status-msg" id="backupStatus"></div>
+      </div>
+      <div class="panel">
+        <h2>Rename a member — everywhere</h2>
+        <div class="hint">Renames someone's Board name, Tipping profile, and sweeps their past picks, all in one go. Only needed if you're renaming someone on their behalf — if they can do it themselves, the Dashboard's own Edit Name does the same thing.</div>
+        <select id="adminRenameMemberSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a member…</option></select>
+        <div id="adminRenameLinkStatus" class="hint" style="margin-bottom:8px;"></div>
+        <div id="adminRenameManualLinkWrap" style="display:none; margin-bottom:8px;">
+          <select id="adminRenameManualLinkSelect" style="width:100%;"><option value="">Pick their account by email…</option></select>
+        </div>
+        <input type="text" id="adminRenameNewName" placeholder="New name" style="width:100%; margin-bottom:8px;">
+        <button type="button" id="adminRenameSaveBtn" disabled>Rename everywhere</button>
+        <div class="status-msg" id="adminRenameStatus"></div>
+      </div>
+      <div class="panel">
         <h2>Admin — approvals</h2>
         <div class="hint">People who've signed up but aren't approved yet. Choose their access level to approve them.</div>
         <div id="pendingUsersArea"><div class="empty">Loading…</div></div>
@@ -867,6 +885,154 @@ async function loadPrizePot(){
     document.getElementById('prizePotInput').value = val != null ? val : '';
   }catch(e){}
 }
+document.getElementById('downloadBackupBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('backupStatus');
+  statusEl.className = 'status-msg';
+  statusEl.textContent = 'Preparing backup…';
+  try{
+    const [stateRes, tippingRes, usersRes] = await Promise.all([
+      authedFetch('/state.json'),
+      authedFetch('/tipping.json'),
+      authedFetch('/users.json')
+    ]);
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      state: await stateRes.json(),
+      tipping: await tippingRes.json(),
+      users: await usersRes.json()
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `mlsynd-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = 'Backup downloaded.';
+    showToast('Backup downloaded');
+  }catch(e){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Could not create backup — try again.';
+  }
+});
+
+let approvedUsersCache = null;
+async function getApprovedUsersCache(){
+  if(approvedUsersCache) return approvedUsersCache;
+  try{
+    const res = await authedFetch('/users.json');
+    const all = await res.json() || {};
+    approvedUsersCache = Object.entries(all)
+      .filter(([uid, u]) => u && u.status === 'approved')
+      .map(([uid, u]) => ({ uid, name: u.name || '', email: u.email || '' }));
+  }catch(e){
+    approvedUsersCache = [];
+  }
+  return approvedUsersCache;
+}
+
+function renderAdminRenamePanel(){
+  const select = document.getElementById('adminRenameMemberSelect');
+  if(!select) return;
+  select.innerHTML = '<option value="">Pick a member…</option>' +
+    state.members.map((m, i) => `<option value="${i}">${escapeHtml(m.name)}</option>`).join('');
+}
+
+let adminRenameTargetUid = null;
+
+async function onAdminRenameMemberChange(){
+  const idx = document.getElementById('adminRenameMemberSelect').value;
+  const statusEl = document.getElementById('adminRenameLinkStatus');
+  const manualWrap = document.getElementById('adminRenameManualLinkWrap');
+  const saveBtn = document.getElementById('adminRenameSaveBtn');
+  adminRenameTargetUid = null;
+  saveBtn.disabled = true;
+  manualWrap.style.display = 'none';
+  if(idx === ''){ statusEl.textContent = ''; return; }
+
+  const member = state.members[idx];
+  document.getElementById('adminRenameNewName').value = member.name;
+
+  if(member.linkedUid){
+    const users = await getApprovedUsersCache();
+    const match = users.find(u => u.uid === member.linkedUid);
+    statusEl.textContent = match ? `Linked to: ${match.email}` : 'Linked, but their account details could not be loaded.';
+    adminRenameTargetUid = member.linkedUid;
+    saveBtn.disabled = false;
+  } else {
+    statusEl.textContent = "This member hasn't linked a Tipping account yet — pick which approved account is theirs below.";
+    const users = await getApprovedUsersCache();
+    const manualSelect = document.getElementById('adminRenameManualLinkSelect');
+    manualSelect.innerHTML = '<option value="">Pick their account by email…</option>' +
+      users.map(u => `<option value="${u.uid}">${escapeHtml(u.email)}${u.name ? ' (' + escapeHtml(u.name) + ')' : ''}</option>`).join('');
+    manualWrap.style.display = '';
+  }
+}
+document.getElementById('adminRenameMemberSelect').addEventListener('change', onAdminRenameMemberChange);
+document.getElementById('adminRenameManualLinkSelect').addEventListener('change', (e) => {
+  adminRenameTargetUid = e.target.value || null;
+  document.getElementById('adminRenameSaveBtn').disabled = !adminRenameTargetUid;
+});
+
+document.getElementById('adminRenameSaveBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('adminRenameStatus');
+  const idx = document.getElementById('adminRenameMemberSelect').value;
+  const newName = document.getElementById('adminRenameNewName').value.trim();
+  if(idx === '' || !newName || !adminRenameTargetUid){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Pick a member, their account, and enter a name first.';
+    return;
+  }
+  const saveBtn = document.getElementById('adminRenameSaveBtn');
+  saveBtn.disabled = true;
+  statusEl.className = 'status-msg';
+  statusEl.textContent = 'Renaming — this can take a few seconds while past picks are swept…';
+  try{
+    // Board name + link, so this member is found this way from now on
+    // without needing to re-pick their account next time.
+    state.members[idx].name = newName;
+    state.members[idx].linkedUid = adminRenameTargetUid;
+    await saveState();
+
+    // Tipping profile name
+    await authedFetch(`/users/${adminRenameTargetUid}/name.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newName)
+    });
+
+    // Sweep their past picks — same idea as the Dashboard's own
+    // renameOnAllMyPicks, just admin-triggered for someone else's uid.
+    const fixRes = await fetch('https://mlsynddash.netlify.app/.netlify/functions/afl-fixtures', { cache: 'no-store' });
+    const fixData = await fixRes.json();
+    const games = fixData.games || [];
+    let swept = 0;
+    await Promise.all(games.map(async g => {
+      try{
+        const res = await authedFetch(`/tipping/picks/${g.id}/${adminRenameTargetUid}.json`);
+        const mine = await res.json();
+        if(mine){
+          await authedFetch(`/tipping/picks/${g.id}/${adminRenameTargetUid}/name.json`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newName)
+          });
+          swept++;
+        }
+      }catch(e){}
+    }));
+
+    renderAdminRenamePanel();
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = `Renamed everywhere — ${swept} past pick(s) updated.`;
+    showToast('Renamed everywhere');
+  }catch(e){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Something went wrong partway through — check the Board and Tipping tabs to see what landed.';
+  }
+  saveBtn.disabled = false;
+});
+
 document.getElementById('savePrizePotBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('prizePotStatus');
   const input = document.getElementById('prizePotInput');
@@ -996,6 +1162,7 @@ async function checkApprovalAndProceed(){
         loadPrizePot();
         loadFirstRound();
         loadSubmissionsRounds();
+        renderAdminRenamePanel();
       }
       if(!appStarted){ appStarted = true; startApp(); }
     } else {
