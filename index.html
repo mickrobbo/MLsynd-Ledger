@@ -938,6 +938,7 @@ async function getApprovedUsersCache(){
 function renderAdminRenamePanel(){
   const select = document.getElementById('adminRenameMemberSelect');
   if(!select) return;
+  if(!state || !state.members) return; // defensive - never crash the app if called before state has loaded
   select.innerHTML = '<option value="">Pick a member…</option>' +
     state.members.map((m, i) => `<option value="${i}">${escapeHtml(m.name)}</option>`).join('');
 }
@@ -1162,7 +1163,6 @@ async function checkApprovalAndProceed(){
         loadPrizePot();
         loadFirstRound();
         loadSubmissionsRounds();
-        renderAdminRenamePanel();
       }
       if(!appStarted){ appStarted = true; startApp(); }
     } else {
@@ -2236,6 +2236,7 @@ async function init(){
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
   safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
+      safeRun('renderAdminRenamePanel', renderAdminRenamePanel);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
   safeRun('renderLeaderboard', renderLeaderboard);
