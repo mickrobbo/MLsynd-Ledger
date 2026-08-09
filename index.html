@@ -441,8 +441,10 @@
       </div>
 
       <div class="panel">
-        <h2>Season history</h2>
-        <div id="historyArea"></div>
+        <h2>Season history <span class="toggle" id="historyToggle">view</span></h2>
+        <div id="historyViewWrap" style="display:none;">
+          <div id="historyArea"></div>
+        </div>
       </div>
     </div>
 
@@ -460,30 +462,6 @@
 
     <div class="tab-panel" id="tab-squad">
       <div class="panel">
-        <h2>Live sync</h2>
-        <div class="hint">The ledger and dashboard both connect to the same fixed database automatically — nothing to copy or paste.</div>
-        <div class="status-msg" id="syncStatusText">Connecting…</div>
-      </div>
-
-      <div class="panel">
-        <h2>Backup</h2>
-        <div class="hint">Downloads everything — members, dues, financials, history, slips — as a file to your phone/computer. This is a real backup independent of browser storage or the internet. Do this after every save, or at least weekly.</div>
-        <div class="row" style="margin-top:0;">
-          <button id="backupBtn" class="small">Download backup</button>
-          <button id="restoreBtn" class="small secondary">Restore from backup</button>
-          <input type="file" id="restoreFile" accept="application/json" style="display:none;">
-        </div>
-        <div class="status-msg" id="backupStatus"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Reset season</h2>
-        <div class="hint">Zeroes every member's stats, dues, and group financials back to a clean slate, and clears saved-week history. Use this if you're going to re-enter the season from Week 1 so the graph and totals build up correctly. Names and bet slips are kept.</div>
-        <button id="resetSeasonBtn" class="small danger">Reset season to zero</button>
-        <div class="status-msg" id="resetStatus"></div>
-      </div>
-
-      <div class="panel">
         <h2>Roster <span class="toggle" id="rosterToggle">edit</span></h2>
         <div id="rosterEdit" style="display:none;">
           <div id="rosterRows"></div>
@@ -496,15 +474,19 @@
       </div>
 
       <div class="panel">
-        <h2>Badges</h2>
-        <div class="hint">Tick a box to award that badge — shows on their profile on the dashboard (tap their name on the Board).</div>
-        <div id="badgeAwardRows"></div>
+        <h2>Badges <span class="toggle" id="badgesToggle">edit</span></h2>
+        <div id="badgesEdit" style="display:none;">
+          <div class="hint">Tick a box to award that badge — shows on their profile on the dashboard (tap their name on the Board).</div>
+          <div id="badgeAwardRows"></div>
+        </div>
       </div>
 
       <div class="panel">
-        <h2>Money owed</h2>
-        <div class="hint">Membership dues, $840/season each. Tap +/− $70 as people pay you a month — it feeds the bank balance and the report automatically.</div>
-        <div id="duesArea"></div>
+        <h2>Money owed <span class="toggle" id="duesToggle">edit</span></h2>
+        <div id="duesEdit" style="display:none;">
+          <div class="hint">Membership dues, $840/season each. Tap +/− $70 as people pay you a month — it feeds the bank balance and the report automatically.</div>
+          <div id="duesArea"></div>
+        </div>
       </div>
     </div>
 
@@ -530,11 +512,29 @@
 
     <div class="tab-panel" id="tab-admin">
       <div class="panel">
+        <h2>Live sync</h2>
+        <div class="hint">The ledger and dashboard both connect to the same fixed database automatically — nothing to copy or paste.</div>
+        <div class="status-msg" id="syncStatusText">Connecting…</div>
+      </div>
+
+      <div class="panel">
         <h2>Backup</h2>
-        <div class="hint">Downloads everything — dues, bets, tipping history, badges, the lot — as a single file. Worth doing every so often, especially before a season reset. If anything ever goes wrong with the live data, this is the only way back.</div>
-        <button type="button" id="downloadBackupBtn">⬇️ Download backup</button>
+        <div class="hint">Downloads everything — members, dues, financials, history, slips, plus Tipping and account data — as a file to your phone/computer. This is a real backup independent of browser storage or the internet. Do this after every save, or at least weekly.</div>
+        <div class="row" style="margin-top:0;">
+          <button id="backupBtn" class="small">Download backup</button>
+          <button id="restoreBtn" class="small secondary">Restore from backup</button>
+          <input type="file" id="restoreFile" accept="application/json" style="display:none;">
+        </div>
         <div class="status-msg" id="backupStatus"></div>
       </div>
+
+      <div class="panel">
+        <h2>Reset season</h2>
+        <div class="hint">Zeroes every member's stats, dues, and group financials back to a clean slate, and clears saved-week history. Use this if you're going to re-enter the season from Week 1 so the graph and totals build up correctly. Names and bet slips are kept.</div>
+        <button id="resetSeasonBtn" class="small danger">Reset season to zero</button>
+        <div class="status-msg" id="resetStatus"></div>
+      </div>
+
       <div class="panel">
         <h2>Rename a member — everywhere</h2>
         <div class="hint">Renames someone's Board name, Tipping profile, and sweeps their past picks, all in one go. Only needed if you're renaming someone on their behalf — if they can do it themselves, the Dashboard's own Edit Name does the same thing.</div>
@@ -553,9 +553,11 @@
         <div id="pendingUsersArea"><div class="empty">Loading…</div></div>
       </div>
       <div class="panel">
-        <h2>Admin — access</h2>
-        <div class="hint">Dashboard only can view the dashboard but can't open this Ledger app. Full access can use both.</div>
-        <div id="approvedUsersArea"><div class="empty">Loading…</div></div>
+        <h2>Admin — access <span class="toggle" id="accessToggle">view</span></h2>
+        <div id="accessViewWrap" style="display:none;">
+          <div class="hint">Dashboard only can view the dashboard but can't open this Ledger app. Full access can use both.</div>
+          <div id="approvedUsersArea"><div class="empty">Loading…</div></div>
+        </div>
       </div>
     </div>
 
@@ -885,40 +887,6 @@ async function loadPrizePot(){
     document.getElementById('prizePotInput').value = val != null ? val : '';
   }catch(e){}
 }
-document.getElementById('downloadBackupBtn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('backupStatus');
-  statusEl.className = 'status-msg';
-  statusEl.textContent = 'Preparing backup…';
-  try{
-    const [stateRes, tippingRes, usersRes] = await Promise.all([
-      authedFetch('/state.json'),
-      authedFetch('/tipping.json'),
-      authedFetch('/users.json')
-    ]);
-    const backup = {
-      exportedAt: new Date().toISOString(),
-      state: await stateRes.json(),
-      tipping: await tippingRes.json(),
-      users: await usersRes.json()
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const dateStr = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `mlsynd-backup-${dateStr}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = 'Backup downloaded.';
-    showToast('Backup downloaded');
-  }catch(e){
-    statusEl.className = 'status-msg error';
-    statusEl.textContent = 'Could not create backup — try again.';
-  }
-});
 
 let approvedUsersCache = null;
 async function getApprovedUsersCache(){
@@ -1598,6 +1566,28 @@ rosterToggle.addEventListener('click', () => {
   rosterEdit.style.display = rosterEdit.style.display === 'none' ? 'block' : 'none';
 });
 
+// ---------- Badges + Money owed (same collapsible pattern as Roster) ----------
+const badgesToggle = document.getElementById('badgesToggle');
+const badgesEdit = document.getElementById('badgesEdit');
+badgesToggle.addEventListener('click', () => {
+  badgesEdit.style.display = badgesEdit.style.display === 'none' ? 'block' : 'none';
+});
+const duesToggle = document.getElementById('duesToggle');
+const duesEdit = document.getElementById('duesEdit');
+duesToggle.addEventListener('click', () => {
+  duesEdit.style.display = duesEdit.style.display === 'none' ? 'block' : 'none';
+});
+const historyToggle = document.getElementById('historyToggle');
+const historyViewWrap = document.getElementById('historyViewWrap');
+historyToggle.addEventListener('click', () => {
+  historyViewWrap.style.display = historyViewWrap.style.display === 'none' ? 'block' : 'none';
+});
+const accessToggle = document.getElementById('accessToggle');
+const accessViewWrap = document.getElementById('accessViewWrap');
+accessToggle.addEventListener('click', () => {
+  accessViewWrap.style.display = accessViewWrap.style.display === 'none' ? 'block' : 'none';
+});
+
 const BADGE_DEFS = {
   'first-xi': 'First XI',
   'go-live': 'Dashboard Go-Live',
@@ -2266,10 +2256,26 @@ async function init(){
   if(dbWasEmpty) await saveState(); // first run — push current state so the DB isn't empty
 }
 
-document.getElementById('backupBtn').addEventListener('click', () => {
+document.getElementById('backupBtn').addEventListener('click', async () => {
   const status = document.getElementById('backupStatus');
+  status.className = 'status-msg';
+  status.textContent = 'Preparing backup…';
   try{
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    // Also grabs Tipping + user account data, not just the Ledger's own
+    // state — if that extra fetch fails for any reason, still deliver a
+    // state-only backup rather than nothing at all.
+    let tipping = null, users = null;
+    try{
+      const [tippingRes, usersRes] = await Promise.all([
+        authedFetch('/tipping.json'),
+        authedFetch('/users.json')
+      ]);
+      tipping = await tippingRes.json();
+      users = await usersRes.json();
+    }catch(e){}
+
+    const backup = { ...state, __tipping: tipping, __users: users, __exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0,10);
