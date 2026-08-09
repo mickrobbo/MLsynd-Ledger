@@ -1692,7 +1692,13 @@ let indDraftRows = [ { name:'', outlay:'50', ret:'' }, { name:'', outlay:'50', r
 
 function readIndividualValues(){
   const rows = document.querySelectorAll('#finIndRows .ind-name');
-  if(rows.length === 0) return indDraftRows;
+  // If the individual-bets rows genuinely haven't rendered yet, the correct
+  // assumption is "nobody's excluded from the group table yet" — falling
+  // back to indDraftRows (a persisted, potentially stale draft) risked
+  // excluding names that have nothing to do with the current live form
+  // state, which is likely what silently emptied several weeks' worth of
+  // group entries.
+  if(rows.length === 0) return [];
   const vals = [];
   rows.forEach(nameSel => {
     const row = nameSel.dataset.row;
@@ -1986,6 +1992,18 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
 
       groupEntries[m.name] = { legs, odds, result: result || null };
     });
+
+    // Safeguard against the exact class of bug that silently dropped
+    // several weeks' worth of group entries in the past — if the table
+    // ended up with zero entries despite having a roster, something's
+    // wrong with the form state, not a genuine "nobody played" week.
+    if(Object.keys(groupEntries).length === 0 && state.members.length > 0){
+      if(!confirm('No group multi entries were captured for this week — every member appears excluded, which usually means a form-rendering glitch rather than a real empty week. Save anyway?')){
+        status.className = 'status-msg error';
+        status.textContent = 'Save cancelled — check the group entry table above before trying again.';
+        return;
+      }
+    }
 
     const individualEntries = {};
     readIndividualValues().forEach(v => {
