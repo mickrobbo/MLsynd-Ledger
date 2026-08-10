@@ -411,6 +411,11 @@
           <button id="undoWeekBtn" class="secondary">Undo last saved week</button>
         </div>
         <div class="status-msg" id="entryStatus"></div>
+        <div class="row" style="margin-top:10px;">
+          <button id="clearMultiDisplayBtn" class="secondary">Clear "who's cooking it" on dashboard</button>
+        </div>
+        <div class="hint">The dashboard keeps showing this week's results even after saving, so the group can still see how it went — tap this once everyone's had a look, and it'll go blank until real activity starts again next week.</div>
+        <div class="status-msg" id="clearMultiStatus"></div>
       </div>
     </div>
 
@@ -1819,6 +1824,16 @@ function renderGroupEntryTable(){
       state.groupEntryDraft[name].odds = oddsEl.value !== '' ? parseFloat(oddsEl.value) : null;
       state.groupEntryDraft[name].result = resultEl.value || null;
       scheduleDraftSave();
+      // New real activity this week — if the dashboard's "who's cooking
+      // it" panel was manually cleared (showing an old week), a fresh
+      // result coming in should naturally un-clear it rather than needing
+      // Mick to remember to do that himself every week.
+      if(resultEl.value && state.groupMultiCleared){
+        state.groupMultiCleared = false;
+        authedFetch('/state/groupMultiCleared.json', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'false'
+        }).catch(() => {});
+      }
     });
   });
 }
@@ -1947,6 +1962,24 @@ function clearEntryInputs(){
 }
 
 // ---------- Save week ----------
+document.getElementById('clearMultiDisplayBtn').addEventListener('click', async () => {
+  const status = document.getElementById('clearMultiStatus');
+  status.className = 'status-msg';
+  status.textContent = 'Clearing…';
+  try{
+    state.groupMultiCleared = true;
+    await authedFetch('/state/groupMultiCleared.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'true'
+    });
+    status.className = 'status-msg ok';
+    status.textContent = 'Cleared — dashboard will go blank until next week\'s activity starts.';
+    showToast('Dashboard multi display cleared');
+  }catch(e){
+    status.className = 'status-msg error';
+    status.textContent = 'Could not clear — try again.';
+  }
+});
+
 document.getElementById('saveWeekBtn').addEventListener('click', async () => {
   const status = document.getElementById('entryStatus');
   const weekLabel = document.getElementById('weekLabel').value.trim();
