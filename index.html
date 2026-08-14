@@ -422,7 +422,7 @@
     <div class="tab-panel" id="tab-bets">
       <div class="panel">
         <h2>This week's individual bets</h2>
-        <div class="hint">Shows on the dashboard, in a box above Highlights, so everyone knows who's up for an individual bet this week.</div>
+        <div class="hint">Shows on the dashboard, in a box above Highlights, so everyone knows who's up for an individual bet this week. The $ amount here feeds real season totals at Save Week too — but only for anyone left blank in the detailed table below, so you're never entering the same bet twice.</div>
         <div id="weeklyIndividualBetsEntry"></div>
         <div class="row">
           <button id="saveWeeklyBetsBtn">Save</button>
@@ -538,6 +538,13 @@
         <div class="hint">Zeroes every member's stats, dues, and group financials back to a clean slate, and clears saved-week history. Use this if you're going to re-enter the season from Week 1 so the graph and totals build up correctly. Names and bet slips are kept.</div>
         <button id="resetSeasonBtn" class="small danger">Reset season to zero</button>
         <div class="status-msg" id="resetStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Recalculate balances from history</h2>
+        <div class="hint">Rebuilds the bank total and every member's stats (wins/losses/legs/P&L) completely from scratch, by re-summing every saved week in history. Use this if a save/undo ever leaves numbers looking off — history is treated as the source of truth, so this fixes drift without touching your saved weeks themselves or dues owed. Safe to run — nothing here changes unless the numbers genuinely didn't match.</div>
+        <button id="recalcFromHistoryBtn" class="small secondary">Recalculate now</button>
+        <div class="status-msg" id="recalcStatus"></div>
       </div>
 
       <div class="panel">
@@ -1878,6 +1885,9 @@ function renderWeeklyIndividualBetsEntry(){
           <option value="Win"${result === 'Win' ? ' selected' : ''}>Win</option>
           <option value="Loss"${result === 'Loss' ? ' selected' : ''}>Loss</option>
         </select>
+        <input type="number" class="wib-amount" data-row="${row}" step="0.01" placeholder="$ won/lost"
+          value="${v.pl != null ? v.pl : ''}"
+          style="display:${result ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
         <label style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap;">
@@ -1895,6 +1905,14 @@ function renderWeeklyIndividualBetsEntry(){
     </div>`;
   }
   wrap.innerHTML = html;
+  wrap.querySelectorAll('.wib-result').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const amountEl = wrap.querySelector(`.wib-amount[data-row="${sel.dataset.row}"]`);
+      if(!amountEl) return;
+      amountEl.style.display = sel.value ? 'inline-block' : 'none';
+      if(!sel.value) amountEl.value = '';
+    });
+  });
   wrap.querySelectorAll('.wib-sgm').forEach(cb => {
     cb.addEventListener('change', () => {
       const sgmResultSel = wrap.querySelector(`.wib-sgm-result[data-row="${cb.dataset.row}"]`);
@@ -1925,6 +1943,7 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
   for(let row = 0; row < 2; row++){
     const nameEl = document.querySelector(`.wib-name[data-row="${row}"]`);
     const resultEl = document.querySelector(`.wib-result[data-row="${row}"]`);
+    const amountEl = document.querySelector(`.wib-amount[data-row="${row}"]`);
     const sgmEl = document.querySelector(`.wib-sgm[data-row="${row}"]`);
     const sgmResultEl = document.querySelector(`.wib-sgm-result[data-row="${row}"]`);
     const sgmAmountEl = document.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
@@ -1934,6 +1953,7 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
     rows.push({
       name,
       result: resultEl && resultEl.value ? resultEl.value : null,
+      pl: (resultEl && resultEl.value && amountEl && amountEl.value !== '') ? parseFloat(amountEl.value) : null,
       sgm: sgmEl ? sgmEl.checked : false,
       sgmResult,
       sgmAmount: (sgmResult === 'Win' && sgmAmountEl && sgmAmountEl.value !== '') ? parseFloat(sgmAmountEl.value) : null
@@ -2029,17 +2049,47 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     }
 
     const individualEntries = {};
+    // Names handled via the detailed table below — tracked so the
+    // quick-card fallback loop after it can skip anyone already counted,
+    // which is what actually prevents a double-count between the two forms.
+    const namesHandledInDetailedTable = new Set();
+    const weeklyBetByName = {};
+    (state.weeklyIndividualBets || []).forEach(b => { if(b && b.name) weeklyBetByName[b.name] = b; });
+
     readIndividualValues().forEach(v => {
       const name = v.name;
       if(!name) return;
+      namesHandledInDetailedTable.add(name);
       const outlay = parseFloat(v.outlay) || 0;
-      const ret = parseFloat(v.ret) || 0;
-      const pl = ret - outlay;
+      const detailedReturnEntered = v.ret !== '' && v.ret !== undefined && v.ret !== null;
+      const weeklyBet = weeklyBetByName[name];
+      let pl, indWin, indLoss;
+      if(detailedReturnEntered){
+        // This person's return was actually typed into the detailed table —
+        // treat that as the final, reconciled figure. Deliberately does NOT
+        // also add the quick weekly-card amount even if one was entered
+        // earlier in the week, since that would double-count the same bet.
+        const ret = parseFloat(v.ret) || 0;
+        pl = ret - outlay;
+        indWin = ret > 0 ? 1 : 0;
+        indLoss = ret > 0 ? 0 : 1;
+      } else if(weeklyBet && weeklyBet.pl != null){
+        // Detailed table was left blank for this person — use the quick
+        // weekly-card amount instead of silently defaulting to a $outlay
+        // loss (an unfilled return field used to parse to 0, recording a
+        // full loss even for someone who'd actually won).
+        pl = weeklyBet.pl;
+        indWin = weeklyBet.result === 'Win' ? 1 : 0;
+        indLoss = weeklyBet.result === 'Loss' ? 1 : 0;
+      } else {
+        const ret = parseFloat(v.ret) || 0;
+        pl = ret - outlay;
+        indWin = ret > 0 ? 1 : 0;
+        indLoss = ret > 0 ? 0 : 1;
+      }
       const m = state.members.find(mm => mm.name === name);
       if(!m) return;
 
-      const indWin = ret > 0 ? 1 : 0;
-      const indLoss = ret > 0 ? 0 : 1;
       m.indWin += indWin;
       m.indLoss += indLoss;
       m.pl += pl;
@@ -2052,6 +2102,29 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
         individualEntries[name].outlay = (individualEntries[name].outlay || 0) + outlay;
       } else {
         individualEntries[name] = { indWin, indLoss, pl, outlay };
+      }
+    });
+
+    // Anyone marked Win/Loss on the quick weekly card but never added to the
+    // detailed table at all (not just left blank) would otherwise be
+    // silently dropped from this week's financial totals — count them here
+    // using their quick-card amount. namesHandledInDetailedTable guards
+    // against also double-counting anyone already handled above.
+    Object.values(weeklyBetByName).forEach(b => {
+      if(!b || !b.name || namesHandledInDetailedTable.has(b.name) || b.pl == null) return;
+      const m = state.members.find(mm => mm.name === b.name);
+      if(!m) return;
+      const indWin = b.result === 'Win' ? 1 : 0;
+      const indLoss = b.result === 'Loss' ? 1 : 0;
+      m.indWin += indWin;
+      m.indLoss += indLoss;
+      m.pl += b.pl;
+      if(individualEntries[b.name]){
+        individualEntries[b.name].indWin += indWin;
+        individualEntries[b.name].indLoss += indLoss;
+        individualEntries[b.name].pl += b.pl;
+      } else {
+        individualEntries[b.name] = { indWin, indLoss, pl: b.pl, outlay: 0 };
       }
     });
 
@@ -2080,7 +2153,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
     safeRun('renderHistory', renderHistory);
-    saveState();
+    await saveState();
 
     status.className = 'status-msg ok';
     status.textContent = `${weekLabel} saved. Leaderboard and report are up to date.`;
@@ -2128,7 +2201,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
 
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
-  saveState();
+  await saveState();
   status.className = 'status-msg ok';
   status.textContent = `${last.label} undone.`;
 });
@@ -2365,6 +2438,73 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     status.textContent = 'Restore failed: ' + err.message;
   }
   e.target.value = '';
+});
+
+document.getElementById('recalcFromHistoryBtn').addEventListener('click', async () => {
+  const status = document.getElementById('recalcStatus');
+  if(!Array.isArray(state.history) || state.history.length === 0){
+    status.className = 'status-msg error';
+    status.textContent = 'No saved history to recalculate from.';
+    return;
+  }
+  if(!confirm(`Recalculate the bank total and every member's stats from all ${state.history.length} saved week(s)? This overwrites the current running totals with fresh numbers rebuilt from history — dues owed and saved weeks themselves aren't touched.`)) return;
+
+  const before = {
+    lottoOut: state.group.lottoOut, lottoRet: state.group.lottoRet,
+    multiOut: state.group.multiOut, multiRet: state.group.multiRet,
+    bonus: state.group.bonus, sgmWin: state.group.sgmWin || 0,
+  };
+
+  // History is treated as ground truth here — rebuild everything from
+  // scratch by re-summing it, rather than trusting the incrementally
+  // maintained running totals, which a save/undo race could have left
+  // out of sync with what history actually shows.
+  state.group = { lottoOut: 0, lottoRet: 0, multiOut: 0, multiRet: 0, bonus: 0, sgmWin: 0 };
+  state.members.forEach(m => {
+    m.legs = 0; m.wins = 0; m.losses = 0; m.voids = 0; m.mia = 0;
+    m.oddsSum = 0; m.oddsCount = 0; m.indWin = 0; m.indLoss = 0; m.pl = 0;
+  });
+
+  state.history.forEach(week => {
+    if(week.group){
+      state.group.lottoOut += week.group.lottoOut || 0;
+      state.group.lottoRet += week.group.lottoRet || 0;
+      state.group.multiOut += week.group.multiOut || 0;
+      state.group.multiRet += week.group.multiRet || 0;
+      state.group.bonus += week.group.bonus || 0;
+      state.group.sgmWin += week.group.sgmWin || 0;
+    }
+    Object.entries(week.groupEntries || {}).forEach(([name, e]) => {
+      const m = state.members.find(mm => mm.name === name);
+      if(!m || !e) return;
+      m.legs += e.legs || 0;
+      if(e.result === 'Win') m.wins += 1;
+      if(e.result === 'Loss') m.losses += 1;
+      if(e.result === 'Void') m.voids += 1;
+      if(e.result === 'MIA') m.mia += 1;
+      if(e.odds != null && e.odds > 0 && e.result !== 'MIA'){ m.oddsSum += e.odds; m.oddsCount += 1; }
+    });
+    Object.entries(week.individualEntries || {}).forEach(([name, e]) => {
+      const m = state.members.find(mm => mm.name === name);
+      if(!m || !e) return;
+      m.indWin += e.indWin || 0;
+      m.indLoss += e.indLoss || 0;
+      m.pl += e.pl || 0;
+    });
+  });
+
+  const after = state.group;
+  const changed = ['lottoOut','lottoRet','multiOut','multiRet','bonus','sgmWin']
+    .filter(k => Math.abs((before[k] || 0) - (after[k] || 0)) > 0.01);
+
+  safeRun('renderLeaderboard', renderLeaderboard);
+  await saveState();
+
+  status.className = 'status-msg ok';
+  status.textContent = changed.length === 0
+    ? 'Recalculated — everything already matched, nothing changed.'
+    : `Recalculated — corrected: ${changed.join(', ')}. Was $${changed.map(k => before[k].toFixed(2)).join('/')}, now $${changed.map(k => after[k].toFixed(2)).join('/')}.`;
+  showToast('Balances recalculated from history');
 });
 
 document.getElementById('resetSeasonBtn').addEventListener('click', async () => {
