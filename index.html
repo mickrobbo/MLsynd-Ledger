@@ -1865,16 +1865,40 @@ function renderEntryTable(){
 }
 
 // ---------- Weekly individual bets (shown on dashboard) ----------
-function renderWeeklyIndividualBetsEntry(){
+function readWeeklyBetValues(){
+  const wrap = document.getElementById('weeklyIndividualBetsEntry');
+  const rows = [];
+  wrap.querySelectorAll('.wib-name').forEach(nameEl => {
+    const row = nameEl.dataset.row;
+    const resultEl = wrap.querySelector(`.wib-result[data-row="${row}"]`);
+    const amountEl = wrap.querySelector(`.wib-amount[data-row="${row}"]`);
+    const sgmEl = wrap.querySelector(`.wib-sgm[data-row="${row}"]`);
+    const sgmResultEl = wrap.querySelector(`.wib-sgm-result[data-row="${row}"]`);
+    const sgmAmountEl = wrap.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
+    rows.push({
+      name: nameEl.value,
+      result: resultEl ? resultEl.value : '',
+      pl: amountEl && amountEl.value !== '' ? amountEl.value : '',
+      sgm: sgmEl ? sgmEl.checked : false,
+      sgmResult: sgmResultEl ? sgmResultEl.value : '',
+      sgmAmount: sgmAmountEl && sgmAmountEl.value !== '' ? sgmAmountEl.value : ''
+    });
+  });
+  return rows;
+}
+function renderWeeklyIndividualBetsEntry(preserve){
   const wrap = document.getElementById('weeklyIndividualBetsEntry');
   if(state.members.length === 0){
     wrap.innerHTML = '<div class="empty">Add people to the roster first.</div>';
     return;
   }
-  const existing = state.weeklyIndividualBets || [];
+  // Someone winning mid-week and picking up a second individual bet is
+  // exactly why this can't stay a hardcoded 2 rows — same +/× row pattern
+  // as the detailed bets table below, just applied to this quick card too.
+  const existing = preserve || (state.weeklyIndividualBets && state.weeklyIndividualBets.length ? state.weeklyIndividualBets : [{}, {}]);
   let html = '';
-  for(let row = 0; row < 2; row++){
-    const v = existing[row] || {};
+  existing.forEach((v, row) => {
+    v = v || {};
     const result = v.result || '';
     const sgmResult = v.sgmResult || '';
     html += `<div class="fin-row-entry" style="display:flex; flex-direction:column; gap:6px; padding:8px 0; border-bottom:1px solid var(--line);">
@@ -1886,8 +1910,9 @@ function renderWeeklyIndividualBetsEntry(){
           <option value="Loss"${result === 'Loss' ? ' selected' : ''}>Loss</option>
         </select>
         <input type="number" class="wib-amount" data-row="${row}" step="0.01" placeholder="$ won/lost"
-          value="${v.pl != null ? v.pl : ''}"
+          value="${v.pl != null && v.pl !== '' ? v.pl : ''}"
           style="display:${result ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
+        <button type="button" class="btn-step wib-remove" data-row="${row}" title="Remove this bet">×</button>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
         <label style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap;">
@@ -1903,7 +1928,8 @@ function renderWeeklyIndividualBetsEntry(){
           style="display:${(v.sgm && sgmResult === 'Win') ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
       </div>
     </div>`;
-  }
+  });
+  html += `<button type="button" id="addWeeklyBetBtn" class="small secondary" style="margin-top:4px;">+ Add another bet</button>`;
   wrap.innerHTML = html;
   wrap.querySelectorAll('.wib-result').forEach(sel => {
     sel.addEventListener('change', () => {
@@ -1923,6 +1949,20 @@ function renderWeeklyIndividualBetsEntry(){
   wrap.querySelectorAll('.wib-sgm-result').forEach(sel => {
     sel.addEventListener('change', () => updateSgmAmountVisibility(wrap, sel.dataset.row));
   });
+  wrap.querySelectorAll('.wib-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = parseInt(btn.dataset.row, 10);
+      const current = readWeeklyBetValues();
+      current.splice(row, 1);
+      if(current.length === 0) current.push({}, {});
+      renderWeeklyIndividualBetsEntry(current);
+    });
+  });
+  document.getElementById('addWeeklyBetBtn').addEventListener('click', () => {
+    const current = readWeeklyBetValues();
+    current.push({});
+    renderWeeklyIndividualBetsEntry(current);
+  });
 }
 
 function updateSgmAmountVisibility(wrap, row){
@@ -1939,26 +1979,16 @@ function updateSgmAmountVisibility(wrap, row){
 
 document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
   const status = document.getElementById('weeklyBetsStatus');
-  const rows = [];
-  for(let row = 0; row < 2; row++){
-    const nameEl = document.querySelector(`.wib-name[data-row="${row}"]`);
-    const resultEl = document.querySelector(`.wib-result[data-row="${row}"]`);
-    const amountEl = document.querySelector(`.wib-amount[data-row="${row}"]`);
-    const sgmEl = document.querySelector(`.wib-sgm[data-row="${row}"]`);
-    const sgmResultEl = document.querySelector(`.wib-sgm-result[data-row="${row}"]`);
-    const sgmAmountEl = document.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
-    const name = nameEl ? nameEl.value : '';
-    if(!name) continue;
-    const sgmResult = (sgmEl && sgmEl.checked && sgmResultEl && sgmResultEl.value) ? sgmResultEl.value : null;
-    rows.push({
-      name,
-      result: resultEl && resultEl.value ? resultEl.value : null,
-      pl: (resultEl && resultEl.value && amountEl && amountEl.value !== '') ? parseFloat(amountEl.value) : null,
-      sgm: sgmEl ? sgmEl.checked : false,
-      sgmResult,
-      sgmAmount: (sgmResult === 'Win' && sgmAmountEl && sgmAmountEl.value !== '') ? parseFloat(sgmAmountEl.value) : null
-    });
-  }
+  const rows = readWeeklyBetValues()
+    .filter(v => v.name)
+    .map(v => ({
+      name: v.name,
+      result: v.result || null,
+      pl: (v.result && v.pl !== '') ? parseFloat(v.pl) : null,
+      sgm: v.sgm,
+      sgmResult: v.sgm && v.sgmResult ? v.sgmResult : null,
+      sgmAmount: (v.sgm && v.sgmResult === 'Win' && v.sgmAmount !== '') ? parseFloat(v.sgmAmount) : null
+    }));
   state.weeklyIndividualBets = rows;
   saveState();
   status.className = 'status-msg ok';
@@ -2053,8 +2083,18 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // quick-card fallback loop after it can skip anyone already counted,
     // which is what actually prevents a double-count between the two forms.
     const namesHandledInDetailedTable = new Set();
-    const weeklyBetByName = {};
-    (state.weeklyIndividualBets || []).forEach(b => { if(b && b.name) weeklyBetByName[b.name] = b; });
+    // Aggregated (not last-write-wins) since one person can now have more
+    // than one quick-card bet in the same week (e.g. wins the first, picks
+    // up a second) — summing pl and counting wins/losses separately keeps
+    // both bets, rather than the second one silently replacing the first.
+    const weeklyBetSumByName = {};
+    (state.weeklyIndividualBets || []).forEach(b => {
+      if(!b || !b.name || b.pl == null) return;
+      if(!weeklyBetSumByName[b.name]) weeklyBetSumByName[b.name] = { pl: 0, win: 0, loss: 0 };
+      weeklyBetSumByName[b.name].pl += b.pl;
+      if(b.result === 'Win') weeklyBetSumByName[b.name].win += 1;
+      if(b.result === 'Loss') weeklyBetSumByName[b.name].loss += 1;
+    });
 
     readIndividualValues().forEach(v => {
       const name = v.name;
@@ -2062,25 +2102,25 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       namesHandledInDetailedTable.add(name);
       const outlay = parseFloat(v.outlay) || 0;
       const detailedReturnEntered = v.ret !== '' && v.ret !== undefined && v.ret !== null;
-      const weeklyBet = weeklyBetByName[name];
+      const weeklyBet = weeklyBetSumByName[name];
       let pl, indWin, indLoss;
       if(detailedReturnEntered){
         // This person's return was actually typed into the detailed table —
         // treat that as the final, reconciled figure. Deliberately does NOT
-        // also add the quick weekly-card amount even if one was entered
-        // earlier in the week, since that would double-count the same bet.
+        // also add the quick weekly-card amount(s) even if some were entered
+        // earlier in the week, since that would double-count the same bets.
         const ret = parseFloat(v.ret) || 0;
         pl = ret - outlay;
         indWin = ret > 0 ? 1 : 0;
         indLoss = ret > 0 ? 0 : 1;
-      } else if(weeklyBet && weeklyBet.pl != null){
+      } else if(weeklyBet){
         // Detailed table was left blank for this person — use the quick
-        // weekly-card amount instead of silently defaulting to a $outlay
+        // weekly-card amount(s) instead of silently defaulting to a $outlay
         // loss (an unfilled return field used to parse to 0, recording a
         // full loss even for someone who'd actually won).
         pl = weeklyBet.pl;
-        indWin = weeklyBet.result === 'Win' ? 1 : 0;
-        indLoss = weeklyBet.result === 'Loss' ? 1 : 0;
+        indWin = weeklyBet.win;
+        indLoss = weeklyBet.loss;
       } else {
         const ret = parseFloat(v.ret) || 0;
         pl = ret - outlay;
@@ -2108,23 +2148,21 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // Anyone marked Win/Loss on the quick weekly card but never added to the
     // detailed table at all (not just left blank) would otherwise be
     // silently dropped from this week's financial totals — count them here
-    // using their quick-card amount. namesHandledInDetailedTable guards
+    // using their quick-card amount(s). namesHandledInDetailedTable guards
     // against also double-counting anyone already handled above.
-    Object.values(weeklyBetByName).forEach(b => {
-      if(!b || !b.name || namesHandledInDetailedTable.has(b.name) || b.pl == null) return;
-      const m = state.members.find(mm => mm.name === b.name);
+    Object.entries(weeklyBetSumByName).forEach(([name, sum]) => {
+      if(namesHandledInDetailedTable.has(name)) return;
+      const m = state.members.find(mm => mm.name === name);
       if(!m) return;
-      const indWin = b.result === 'Win' ? 1 : 0;
-      const indLoss = b.result === 'Loss' ? 1 : 0;
-      m.indWin += indWin;
-      m.indLoss += indLoss;
-      m.pl += b.pl;
-      if(individualEntries[b.name]){
-        individualEntries[b.name].indWin += indWin;
-        individualEntries[b.name].indLoss += indLoss;
-        individualEntries[b.name].pl += b.pl;
+      m.indWin += sum.win;
+      m.indLoss += sum.loss;
+      m.pl += sum.pl;
+      if(individualEntries[name]){
+        individualEntries[name].indWin += sum.win;
+        individualEntries[name].indLoss += sum.loss;
+        individualEntries[name].pl += sum.pl;
       } else {
-        individualEntries[b.name] = { indWin, indLoss, pl: b.pl, outlay: 0 };
+        individualEntries[name] = { indWin: sum.win, indLoss: sum.loss, pl: sum.pl, outlay: 0 };
       }
     });
 
