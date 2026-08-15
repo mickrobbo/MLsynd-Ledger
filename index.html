@@ -2174,6 +2174,21 @@ document.getElementById('clearMultiDisplayBtn').addEventListener('click', async 
 // already used elsewhere in this project's rules. Fails silently (try/catch)
 // per-person until that rule exists, same as other non-destructive-failure
 // patterns here — the real ledger save itself never depends on this working.
+// Lifetime-earned only ever goes up (losses / week-undo reversals don't
+// reduce it) — this is what the Casino's 10K/100K/250K/500K/1M badges
+// track, deliberately separate from the spendable balance. Shared by every
+// XP-crediting path in this file so badges stay accurate regardless of
+// whether the XP came from a bet win, dues payment, or a manual bonus.
+async function bumpLifetimeEarned(uid, amount){
+  if(!amount || amount <= 0) return;
+  try{
+    const res = await authedFetch(`/xp/${uid}/lifetimeEarned.json`);
+    const current = (await res.json()) || 0;
+    await authedFetch(`/xp/${uid}/lifetimeEarned.json`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(current + amount)
+    });
+  }catch(e){}
+}
 async function applyXPAwards(xpByName, reverse, reason){
   for(const [name, amount] of Object.entries(xpByName)){
     if(!amount) continue;
@@ -2195,6 +2210,7 @@ async function applyXPAwards(xpByName, reverse, reason){
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ amount: delta, reason: reason || (reverse ? 'Week undone' : 'Weekly betting result'), balanceAfter: next, ts: Date.now() })
       });
+      await bumpLifetimeEarned(member.linkedUid, delta);
     }catch(e){}
   }
 }
@@ -2221,6 +2237,7 @@ async function awardXPToUid(uid, amount, reason){
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ amount, reason, balanceAfter: next, ts: Date.now() })
     });
+    await bumpLifetimeEarned(uid, amount);
     return true;
   }catch(e){ return false; }
 }
