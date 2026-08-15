@@ -526,10 +526,14 @@
       </div>
 
       <div class="panel">
-        <h2>🎉 Casino rollout bonus</h2>
-        <div class="hint">One-off +1000 XP for every approved account (Full, Dashboard, and Tipping — everyone, regardless of role), to soften the new Casino features rolling out. This reads the live approved-users list and can only be run once.</div>
-        <button type="button" id="rolloutBonusBtn">🎁 Give everyone +1000 XP</button>
+        <h2>🎁 Give everyone bonus XP</h2>
+        <div class="hint">Awards a flat amount of Casino XP to every approved account (Full, Dashboard, and Tipping — everyone, regardless of role) in one go. Reads the live approved-users list each time, so it always reaches whoever's currently approved. Not a one-off — use it whenever you want to hand out a bonus.</div>
+        <div class="row" style="margin-top:0;">
+          <input type="number" id="rolloutBonusAmount" value="1000" min="1" step="50" style="max-width:120px;">
+          <button type="button" id="rolloutBonusBtn">🎁 Give everyone bonus XP</button>
+        </div>
         <div class="status-msg" id="rolloutBonusStatus"></div>
+        <div class="hint" id="rolloutBonusHistory" style="margin-top:6px;"></div>
       </div>
 
       <div class="panel">
@@ -1657,7 +1661,7 @@ function renderDues(){
     });
   });
   updateDuesXPBackpayButtonState();
-  updateRolloutBonusButtonState();
+  renderRolloutBonusHistory();
 }
 function updateDuesXPBackpayButtonState(){
   const btn = document.getElementById('duesXPBackpayBtn');
@@ -2195,13 +2199,16 @@ async function applyXPAwards(xpByName, reverse, reason){
   }
 }
 
-// ---------- Casino rollout bonus (one-off, every approved account) ----------
+// ---------- Give everyone bonus XP (repeatable, every approved account) ----------
 // Deliberately NOT routed through applyXPAwards — that function is keyed by
 // squad member name and skips tipping-tier accounts on purpose (their XP
 // only comes from the weekly bonus + Tipping points). This bonus is a flat,
 // role-agnostic giveaway tied to every APPROVED UID in /users, the same
 // list the Admin — access panel reads, so it reaches tipping-only accounts
 // too even though they're not necessarily squad members with a linkedUid.
+// Unlike the old one-off version, this keeps a running history instead of
+// permanently locking the button after first use — the admin can hand out
+// a bonus of any size whenever they want.
 async function awardXPToUid(uid, amount, reason){
   try{
     const res = await authedFetch(`/xp/${uid}/balance.json`);
@@ -2217,23 +2224,26 @@ async function awardXPToUid(uid, amount, reason){
     return true;
   }catch(e){ return false; }
 }
-function updateRolloutBonusButtonState(){
-  const btn = document.getElementById('rolloutBonusBtn');
-  if(!btn) return;
-  if(state.rolloutBonus1000At){
-    btn.disabled = true;
-    btn.textContent = '✅ Rollout bonus already given';
-  }
+function renderRolloutBonusHistory(){
+  const el = document.getElementById('rolloutBonusHistory');
+  if(!el) return;
+  const history = Array.isArray(state.rolloutBonusHistory) ? state.rolloutBonusHistory : [];
+  if(history.length === 0){ el.textContent = ''; return; }
+  const last = history[history.length - 1];
+  const when = new Date(last.at).toLocaleString();
+  el.textContent = `Last given: +${last.amount} XP to ${last.count} account(s), ${when}.`;
 }
 document.getElementById('rolloutBonusBtn').addEventListener('click', async () => {
   const btn = document.getElementById('rolloutBonusBtn');
   const status = document.getElementById('rolloutBonusStatus');
-  if(state.rolloutBonus1000At){
+  const amountInput = document.getElementById('rolloutBonusAmount');
+  const amount = parseInt(amountInput.value, 10);
+  if(!amount || amount <= 0){
     status.className = 'status-msg error';
-    status.textContent = 'Already run — this only ever applies once.';
+    status.textContent = 'Enter a positive XP amount first.';
     return;
   }
-  if(!confirm('Award +1000 XP to every approved account, once, right now — continue?')) return;
+  if(!confirm(`Award +${amount} XP to every approved account, right now — continue?`)) return;
 
   btn.disabled = true;
   status.className = 'status-msg';
@@ -2253,17 +2263,19 @@ document.getElementById('rolloutBonusBtn').addEventListener('click', async () =>
 
   let count = 0;
   for(const [uid] of approved){
-    const ok = await awardXPToUid(uid, 1000, 'Casino launch bonus');
+    const ok = await awardXPToUid(uid, amount, 'Casino bonus');
     if(ok) count++;
   }
 
-  state.rolloutBonus1000At = Date.now();
+  if(!Array.isArray(state.rolloutBonusHistory)) state.rolloutBonusHistory = [];
+  state.rolloutBonusHistory.push({ amount, count, at: Date.now() });
   await saveState();
 
   status.className = 'status-msg ok';
-  status.textContent = `Done — +1000 XP awarded to ${count} of ${approved.length} approved account(s).`;
-  showToast('Rollout bonus complete');
-  updateRolloutBonusButtonState();
+  status.textContent = `Done — +${amount} XP awarded to ${count} of ${approved.length} approved account(s).`;
+  showToast('Bonus XP sent');
+  btn.disabled = false;
+  renderRolloutBonusHistory();
 });
 
 document.getElementById('saveWeekBtn').addEventListener('click', async () => {
