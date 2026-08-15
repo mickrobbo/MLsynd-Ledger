@@ -68,11 +68,6 @@
     box-shadow: 0 6px 18px rgba(0,0,0,.35);
   }
   .toteboard-inner{ max-width:720px; margin:0 auto; padding:10px 14px 8px; position:relative; }
-  .toteboard-name{
-    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:15px;
-    letter-spacing:3px; text-transform:uppercase; color: var(--brass); margin:0 0 6px;
-    text-shadow: 0 0 14px rgba(199,162,72,.4);
-  }
   .toteboard-banner{
     display:block; width:160px; max-width:55%; height:auto; margin:0 auto 6px;
     filter: drop-shadow(0 0 12px rgba(199,162,72,.3));
@@ -171,7 +166,6 @@
   label.field{ display:flex; flex-direction:column; gap:4px; font-size:10px; color:var(--muted); font-family:'IBM Plex Mono', monospace; text-transform:uppercase; letter-spacing:.5px; }
 
   .row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items:center; }
-  .grid-fin{ display:grid; grid-template-columns: repeat(auto-fit, minmax(90px,1fr)); gap:10px; margin-bottom:14px; }
 
   .fin-header-row{ display:flex; gap:6px; padding:0 0 4px; }
   .fin-header-row .fin-col-lbl{
@@ -254,6 +248,21 @@
   .role-group-tipping .role-group-title{ color:var(--win); }
   .role-group .pending-user-row{ border-bottom-color:rgba(239,234,216,.08); }
 
+  /* Cashed Out toggle (weekly individual bets) — same small-pill language
+     as the role badges above (rgba win-green fill, solid once active),
+     kept visually distinct from the plain SGM checkbox since it's a
+     separate, independent flag. */
+  .wib-cashout-pill{
+    display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:999px;
+    font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; font-family:inherit;
+    background:rgba(111,169,138,.12); color:var(--win); border:1px solid rgba(111,169,138,.35);
+    transition: background .15s ease, box-shadow .15s ease;
+  }
+  .wib-cashout-pill.active{
+    background:var(--win); color:#0d1f16; border-color:var(--win);
+    box-shadow:0 0 8px rgba(111,169,138,.55);
+  }
+
   pre#reportText{
     background:#060A08; border:1px solid var(--line); border-radius:6px;
     padding:12px; font-family:'IBM Plex Mono', monospace; font-size:12px;
@@ -297,7 +306,6 @@
   .entry-col-name{ flex:1 1 auto; min-width:0; }
   span.entry-col-name{ font-family:'IBM Plex Mono', monospace; font-weight:600; color:var(--chalk); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .entry-col-odds{ flex:0 0 62px; width:62px; }
-  .entry-col-pl{ flex:0 0 62px; width:62px; }
   .entry-col-result{ flex:0 0 78px; width:78px; }
 
   .slip-card{
@@ -417,9 +425,7 @@
         <div class="hint">The dashboard keeps showing this week's results even after saving, so the group can still see how it went — tap this once everyone's had a look, and it'll go blank until real activity starts again next week.</div>
         <div class="status-msg" id="clearMultiStatus"></div>
       </div>
-    </div>
 
-    <div class="tab-panel" id="tab-bets">
       <div class="panel">
         <h2>This week's individual bets</h2>
         <div class="hint">Shows on the dashboard, in a box above Highlights, so everyone knows who's up for an individual bet this week. The $ amount here feeds real season totals at Save Week too — but only for anyone left blank in the detailed table below, so you're never entering the same bet twice.</div>
@@ -463,6 +469,24 @@
         <div class="status-msg" id="reportStatus"></div>
         <pre id="reportText"></pre>
       </div>
+
+      <div class="panel">
+        <h2>Bet slips</h2>
+        <div class="hint">Upload a screenshot of the lotto ticket or bet slip each week — or paste a link instead. These show up on the dashboard's Slips tab too, and you can remove one any time to add a new one.</div>
+        <div class="row" style="margin-top:0;">
+          <input type="file" id="slipFileInput" accept="image/*" style="display:none;">
+          <button id="slipUploadBtn" class="small">📷 Upload screenshot</button>
+        </div>
+        <div id="slipUploadStatus" class="status-msg"></div>
+        <div class="row" style="margin-top:0;">
+          <input type="text" id="slipLabel" placeholder="Label (e.g. Week 30 multi)" style="flex:1;">
+        </div>
+        <div class="row">
+          <input type="text" id="slipUrl" placeholder="…or paste a link https://…" style="flex:1;">
+          <button id="addSlipBtn" class="small">Add</button>
+        </div>
+        <div id="slipsArea" style="margin-top:8px;"></div>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-squad">
@@ -495,26 +519,6 @@
           <div class="hint" style="margin-top:6px;">One-time only — awards 1 XP per $2 of what everyone's ALREADY paid so far this season (based on the numbers above right now), so early payers aren't short-changed versus people who pay later. Disabled automatically after it's been run once.</div>
           <div id="duesXPBackpayStatus" class="status-msg" style="margin-top:6px;"></div>
         </div>
-      </div>
-    </div>
-
-    <div class="tab-panel" id="tab-slips">
-      <div class="panel">
-        <h2>Bet slips</h2>
-        <div class="hint">Upload a screenshot of the lotto ticket or bet slip each week — or paste a link instead. These show up on the dashboard's Slips tab too, and you can remove one any time to add a new one.</div>
-        <div class="row" style="margin-top:0;">
-          <input type="file" id="slipFileInput" accept="image/*" style="display:none;">
-          <button id="slipUploadBtn" class="small">📷 Upload screenshot</button>
-        </div>
-        <div id="slipUploadStatus" class="status-msg"></div>
-        <div class="row" style="margin-top:0;">
-          <input type="text" id="slipLabel" placeholder="Label (e.g. Week 30 multi)" style="flex:1;">
-        </div>
-        <div class="row">
-          <input type="text" id="slipUrl" placeholder="…or paste a link https://…" style="flex:1;">
-          <button id="addSlipBtn" class="small">Add</button>
-        </div>
-        <div id="slipsArea" style="margin-top:8px;"></div>
       </div>
     </div>
 
@@ -625,11 +629,9 @@
 
   <nav class="tabbar">
     <button class="tab-btn active" data-tab="entry"><span class="icon">✎</span>Entry</button>
-    <button class="tab-btn" data-tab="bets"><span class="icon">🎯</span>Bets</button>
     <button class="tab-btn" data-tab="board"><span class="icon">🏆</span>Board</button>
     <button class="tab-btn" data-tab="report"><span class="icon">📋</span>Report</button>
     <button class="tab-btn" data-tab="squad"><span class="icon">👥</span>Squad</button>
-    <button class="tab-btn" data-tab="slips"><span class="icon">📎</span>Slips</button>
     <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;"><span class="icon">🔑</span>Admin</button>
     <button class="tab-btn" data-tab="tippingadmin" id="tippingAdminTabBtn" style="display:none;"><span class="icon">🏉</span>Tipping</button>
   </nav>
@@ -2012,13 +2014,15 @@ function readWeeklyBetValues(){
     const sgmEl = wrap.querySelector(`.wib-sgm[data-row="${row}"]`);
     const sgmResultEl = wrap.querySelector(`.wib-sgm-result[data-row="${row}"]`);
     const sgmAmountEl = wrap.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
+    const cashOutEl = wrap.querySelector(`.wib-cashout-pill[data-row="${row}"]`);
     rows.push({
       name: nameEl.value,
       result: resultEl ? resultEl.value : '',
       pl: amountEl && amountEl.value !== '' ? amountEl.value : '',
       sgm: sgmEl ? sgmEl.checked : false,
       sgmResult: sgmResultEl ? sgmResultEl.value : '',
-      sgmAmount: sgmAmountEl && sgmAmountEl.value !== '' ? sgmAmountEl.value : ''
+      sgmAmount: sgmAmountEl && sgmAmountEl.value !== '' ? sgmAmountEl.value : '',
+      cashedOut: cashOutEl ? cashOutEl.classList.contains('active') : false
     });
   });
   return rows;
@@ -2063,6 +2067,7 @@ function renderWeeklyIndividualBetsEntry(preserve){
         <input type="number" class="wib-sgm-amount" data-row="${row}" step="0.01" placeholder="Amount"
           value="${v.sgmAmount != null ? v.sgmAmount : ''}"
           style="display:${(v.sgm && sgmResult === 'Win') ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
+        <button type="button" class="wib-cashout-pill${v.cashedOut ? ' active' : ''}" data-row="${row}">💵 ${v.cashedOut ? 'Cashed Out' : 'Cash Out'}</button>
       </div>
     </div>`;
   });
@@ -2085,6 +2090,13 @@ function renderWeeklyIndividualBetsEntry(preserve){
   });
   wrap.querySelectorAll('.wib-sgm-result').forEach(sel => {
     sel.addEventListener('change', () => updateSgmAmountVisibility(wrap, sel.dataset.row));
+  });
+  wrap.querySelectorAll('.wib-cashout-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nowActive = !btn.classList.contains('active');
+      btn.classList.toggle('active', nowActive);
+      btn.textContent = nowActive ? '💵 Cashed Out' : '💵 Cash Out';
+    });
   });
   wrap.querySelectorAll('.wib-remove').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2124,7 +2136,8 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
       pl: (v.result && v.pl !== '') ? parseFloat(v.pl) : null,
       sgm: v.sgm,
       sgmResult: v.sgm && v.sgmResult ? v.sgmResult : null,
-      sgmAmount: (v.sgm && v.sgmResult === 'Win' && v.sgmAmount !== '') ? parseFloat(v.sgmAmount) : null
+      sgmAmount: (v.sgm && v.sgmResult === 'Win' && v.sgmAmount !== '') ? parseFloat(v.sgmAmount) : null,
+      cashedOut: !!v.cashedOut
     }));
   state.weeklyIndividualBets = rows;
   saveState();
