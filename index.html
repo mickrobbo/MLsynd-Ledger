@@ -2514,7 +2514,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 1);
     });
     Object.entries(groupEntries).forEach(([name, e]) => {
-      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 100);
+      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 150);
     });
     await applyXPAwards(xpAwarded);
 
