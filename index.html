@@ -489,8 +489,11 @@
       <div class="panel">
         <h2>Money owed <span class="toggle" id="duesToggle">edit</span></h2>
         <div id="duesEdit" style="display:none;">
-          <div class="hint">Membership dues, $840/season each. Tap +/− $70 as people pay you a month — it feeds the bank balance and the report automatically.</div>
+          <div class="hint">Membership dues, $840/season each. Tap +/− $70 as people pay you a month — it feeds the bank balance and the report automatically. Every real payment also earns that person 1 Casino XP per $2 paid.</div>
           <div id="duesArea"></div>
+          <button type="button" id="duesXPBackpayBtn" style="margin-top:10px;">🎰 Back-pay Casino XP for dues already paid</button>
+          <div class="hint" style="margin-top:6px;">One-time only — awards 1 XP per $2 of what everyone's ALREADY paid so far this season (based on the numbers above right now), so early payers aren't short-changed versus people who pay later. Disabled automatically after it's been run once.</div>
+          <div id="duesXPBackpayStatus" class="status-msg" style="margin-top:6px;"></div>
         </div>
       </div>
     </div>
@@ -1545,31 +1548,92 @@ function renderDues(){
     inp.addEventListener('change', async (e) => {
       const idx = parseInt(e.target.dataset.idx, 10);
       const m = state.members[idx];
+      const before = Math.round(m.duesOwed);
       const val = parseFloat(e.target.value);
       m.duesOwed = Math.max(0, Math.min(Math.round(m.duesCommitment), isNaN(val) ? 0 : val));
+      const paid = before - m.duesOwed;
       renderDues();
       saveState();
+      if(paid > 0){
+        const xp = Math.floor(paid / 2);
+        if(xp > 0) await applyXPAwards({ [m.name]: xp }, false, `Dues payment ($${paid})`);
+      }
     });
   });
   area.querySelectorAll('.dues-minus').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       const idx = parseInt(e.target.dataset.idx, 10);
       const m = state.members[idx];
-      m.duesOwed = Math.max(0, Math.round(m.duesOwed) - DUES_STEP);
+      const before = Math.round(m.duesOwed);
+      m.duesOwed = Math.max(0, before - DUES_STEP);
+      const paid = before - m.duesOwed; // usually DUES_STEP, but less if there wasn't that much left owing
       renderDues();
       saveState();
+      if(paid > 0){
+        const xp = Math.floor(paid / 2);
+        if(xp > 0) await applyXPAwards({ [m.name]: xp }, false, `Dues payment ($${paid})`);
+      }
     });
   });
   area.querySelectorAll('.dues-plus').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const idx = parseInt(e.target.dataset.idx, 10);
       const m = state.members[idx];
+      // Correcting upward (un-recording a payment) deliberately does NOT
+      // claw back the XP already awarded for it — this button exists for
+      // fixing data entry mistakes, and proportionally reversing XP for
+      // every possible correction adds real complexity for a rare action.
       m.duesOwed = Math.min(Math.round(m.duesCommitment), Math.round(m.duesOwed) + DUES_STEP);
       renderDues();
       saveState();
     });
   });
+  updateDuesXPBackpayButtonState();
 }
+function updateDuesXPBackpayButtonState(){
+  const btn = document.getElementById('duesXPBackpayBtn');
+  const status = document.getElementById('duesXPBackpayStatus');
+  if(!btn) return;
+  if(state.duesXPBackpaidAt){
+    btn.disabled = true;
+    btn.textContent = '✅ Dues XP already back-paid';
+    if(status) status.textContent = '';
+  }
+}
+document.getElementById('duesXPBackpayBtn').addEventListener('click', async () => {
+  const status = document.getElementById('duesXPBackpayStatus');
+  const btn = document.getElementById('duesXPBackpayBtn');
+  if(state.duesXPBackpaidAt){
+    status.className = 'status-msg error';
+    status.textContent = 'Already run — this only ever applies once.';
+    return;
+  }
+  const totalPaid = state.members.reduce((s, m) => s + Math.max(0, Math.round(m.duesCommitment) - Math.round(m.duesOwed)), 0);
+  if(!confirm(`Award 1 XP per $2 already paid, for everyone, based on the numbers shown right now (total $${totalPaid} paid across the group). This can only be run once — continue?`)) return;
+
+  btn.disabled = true;
+  status.className = 'status-msg';
+  status.textContent = 'Awarding XP…';
+
+  const xpByName = {};
+  state.members.forEach(m => {
+    const paid = Math.max(0, Math.round(m.duesCommitment) - Math.round(m.duesOwed));
+    const xp = Math.floor(paid / 2);
+    if(xp > 0) xpByName[m.name] = xp;
+  });
+  await applyXPAwards(xpByName, false, 'Dues XP backpay');
+
+  state.duesXPBackpaidAt = Date.now();
+  await saveState();
+
+  const skipped = state.members
+    .filter(m => !m.linkedUid && Math.max(0, Math.round(m.duesCommitment) - Math.round(m.duesOwed)) > 0)
+    .map(m => m.name);
+  status.className = 'status-msg ok';
+  status.textContent = `Done — XP awarded to ${Object.keys(xpByName).length} member(s).` + (skipped.length ? ` Skipped (no linked account yet): ${skipped.join(', ')}.` : '');
+  showToast('Dues XP backpay complete');
+  updateDuesXPBackpayButtonState();
+});
 
 // ---------- Roster ----------
 const rosterToggle = document.getElementById('rosterToggle');
@@ -2030,6 +2094,34 @@ document.getElementById('clearMultiDisplayBtn').addEventListener('click', async 
   }
 });
 
+// ---------- XP awards (individual bet wins + group leg wins → Casino XP) ----------
+// The admin (running Save Week) needs to credit OTHER members' XP, not just
+// their own — this needs a matching Firebase rules change allowing the
+// admin email to write any /xp/{uid} path, same admin-fallback pattern
+// already used elsewhere in this project's rules. Fails silently (try/catch)
+// per-person until that rule exists, same as other non-destructive-failure
+// patterns here — the real ledger save itself never depends on this working.
+async function applyXPAwards(xpByName, reverse, reason){
+  for(const [name, amount] of Object.entries(xpByName)){
+    if(!amount) continue;
+    const member = state.members.find(m => m.name === name);
+    if(!member || !member.linkedUid) continue; // no linked account yet — can't credit a uid that doesn't exist
+    const delta = reverse ? -amount : amount;
+    try{
+      const res = await authedFetch(`/xp/${member.linkedUid}/balance.json`);
+      const current = (await res.json()) || 0;
+      const next = current + delta;
+      await authedFetch(`/xp/${member.linkedUid}/balance.json`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(next)
+      });
+      await authedFetch(`/xp/${member.linkedUid}/log.json`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ amount: delta, reason: reason || (reverse ? 'Week undone' : 'Weekly betting result'), balanceAfter: next, ts: Date.now() })
+      });
+    }catch(e){}
+  }
+}
+
 document.getElementById('saveWeekBtn').addEventListener('click', async () => {
   const status = document.getElementById('entryStatus');
   const weekLabel = document.getElementById('weekLabel').value.trim();
@@ -2184,9 +2276,25 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // store prevRank on each member for movement display next render
     state.members.forEach(m => { m.prevRank = prevRankMap[m.name] || null; });
 
+    // XP awards: 1 XP per $1 won on an individual bet, 100 XP per winning
+    // group leg. Only wins earn XP (a losing individual bet's negative pl
+    // is never subtracted — XP is meant to only ever go up from real
+    // betting performance; losing it happens in the Casino game, not here).
+    // Stored on this week's own history record (xpAwarded: {name: amount})
+    // so Undo Week can reverse the exact same amounts later, same pattern
+    // as every other stat on this record.
+    const xpAwarded = {};
+    Object.entries(individualEntries).forEach(([name, e]) => {
+      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 1);
+    });
+    Object.entries(groupEntries).forEach(([name, e]) => {
+      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 100);
+    });
+    await applyXPAwards(xpAwarded);
+
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -2213,6 +2321,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   if(!confirm('Undo the last saved week? This reverses everyone\'s totals back to before that week.')) return;
 
   const last = state.history.pop();
+  if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
   Object.entries(last.groupEntries || {}).forEach(([name, e]) => {
     const m = state.members.find(mm => mm.name === name);
     if(!m) return;
