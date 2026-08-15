@@ -530,11 +530,14 @@
       </div>
 
       <div class="panel">
-        <h2>🎁 Give everyone bonus XP</h2>
-        <div class="hint">Awards a flat amount of Casino XP to every approved account (Full, Dashboard, and Tipping — everyone, regardless of role) in one go. Reads the live approved-users list each time, so it always reaches whoever's currently approved. Not a one-off — use it whenever you want to hand out a bonus.</div>
+        <h2>🎁 Give bonus XP</h2>
+        <div class="hint">Awards Casino XP either to every approved account (Full, Dashboard, and Tipping — everyone, regardless of role) or to one specific person. Reads the live approved-users list each time. Not a one-off — use it whenever you want to hand out a bonus.</div>
+        <div class="row" style="margin-top:0;">
+          <select id="rolloutBonusTarget" style="flex:1;"><option value="everyone">🌐 Everyone (all approved accounts)</option></select>
+        </div>
         <div class="row" style="margin-top:0;">
           <input type="number" id="rolloutBonusAmount" value="1000" min="1" step="50" style="max-width:120px;">
-          <button type="button" id="rolloutBonusBtn">🎁 Give everyone bonus XP</button>
+          <button type="button" id="rolloutBonusBtn">🎁 Give bonus XP</button>
         </div>
         <div class="status-msg" id="rolloutBonusStatus"></div>
         <div class="hint" id="rolloutBonusHistory" style="margin-top:6px;"></div>
@@ -1663,7 +1666,6 @@ function renderDues(){
     });
   });
   updateDuesXPBackpayButtonState();
-  renderRolloutBonusHistory();
 }
 function updateDuesXPBackpayButtonState(){
   const btn = document.getElementById('duesXPBackpayBtn');
@@ -2228,16 +2230,15 @@ async function applyXPAwards(xpByName, reverse, reason){
   }
 }
 
-// ---------- Give everyone bonus XP (repeatable, every approved account) ----------
+// ---------- Give bonus XP (repeatable — everyone, or one specific person) ----------
 // Deliberately NOT routed through applyXPAwards — that function is keyed by
 // squad member name and skips tipping-tier accounts on purpose (their XP
 // only comes from the weekly bonus + Tipping points). This bonus is a flat,
-// role-agnostic giveaway tied to every APPROVED UID in /users, the same
-// list the Admin — access panel reads, so it reaches tipping-only accounts
-// too even though they're not necessarily squad members with a linkedUid.
-// Unlike the old one-off version, this keeps a running history instead of
-// permanently locking the button after first use — the admin can hand out
-// a bonus of any size whenever they want.
+// role-agnostic giveaway tied to APPROVED UIDs in /users, the same list
+// the Admin — access panel reads, so it reaches tipping-only accounts too
+// even though they're not necessarily squad members with a linkedUid.
+// Keeps a running history instead of a one-off locked button — the admin
+// can hand out a bonus of any size, to anyone, whenever they want.
 async function awardXPToUid(uid, amount, reason){
   try{
     const res = await authedFetch(`/xp/${uid}/balance.json`);
@@ -2261,23 +2262,62 @@ function renderRolloutBonusHistory(){
   if(history.length === 0){ el.textContent = ''; return; }
   const last = history[history.length - 1];
   const when = new Date(last.at).toLocaleString();
-  el.textContent = `Last given: +${last.amount} XP to ${last.count} account(s), ${when}.`;
+  const who = last.targetName ? `to ${last.targetName}` : `to ${last.count} account(s)`;
+  el.textContent = `Last given: +${last.amount} XP ${who}, ${when}.`;
+}
+// Populates the target dropdown with every currently-approved account —
+// always a fresh /users.json read (not the cached getApprovedUsersCache)
+// since picking the wrong person to award XP to is worth avoiding stale
+// data for.
+async function populateRolloutBonusTargetSelect(){
+  const sel = document.getElementById('rolloutBonusTarget');
+  if(!sel) return;
+  const prevValue = sel.value;
+  try{
+    const res = await authedFetch('/users.json');
+    const all = await res.json() || {};
+    const approved = Object.entries(all)
+      .filter(([uid, u]) => u && u.status === 'approved')
+      .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+    sel.innerHTML = '<option value="everyone">🌐 Everyone (all approved accounts)</option>' +
+      approved.map(([uid, u]) => `<option value="${uid}">${escapeHtml(u.name || u.email || uid.slice(0,8))}</option>`).join('');
+    if([...sel.options].some(o => o.value === prevValue)) sel.value = prevValue;
+  }catch(e){}
 }
 document.getElementById('rolloutBonusBtn').addEventListener('click', async () => {
   const btn = document.getElementById('rolloutBonusBtn');
   const status = document.getElementById('rolloutBonusStatus');
   const amountInput = document.getElementById('rolloutBonusAmount');
+  const targetSel = document.getElementById('rolloutBonusTarget');
   const amount = parseInt(amountInput.value, 10);
   if(!amount || amount <= 0){
     status.className = 'status-msg error';
     status.textContent = 'Enter a positive XP amount first.';
     return;
   }
-  if(!confirm(`Award +${amount} XP to every approved account, right now — continue?`)) return;
+  const targetUid = targetSel.value;
+  const targetName = targetUid === 'everyone' ? null : targetSel.options[targetSel.selectedIndex].textContent;
+  const confirmMsg = targetUid === 'everyone'
+    ? `Award +${amount} XP to every approved account, right now — continue?`
+    : `Award +${amount} XP to ${targetName} only, right now — continue?`;
+  if(!confirm(confirmMsg)) return;
 
   btn.disabled = true;
   status.className = 'status-msg';
   status.textContent = 'Awarding XP…';
+
+  if(targetUid !== 'everyone'){
+    const ok = await awardXPToUid(targetUid, amount, 'Casino bonus');
+    if(!Array.isArray(state.rolloutBonusHistory)) state.rolloutBonusHistory = [];
+    state.rolloutBonusHistory.push({ amount, count: ok ? 1 : 0, targetName, at: Date.now() });
+    await saveState();
+    status.className = ok ? 'status-msg ok' : 'status-msg error';
+    status.textContent = ok ? `Done — +${amount} XP awarded to ${targetName}.` : `Could not award XP to ${targetName} — try again.`;
+    if(ok) showToast('Bonus XP sent');
+    btn.disabled = false;
+    renderRolloutBonusHistory();
+    return;
+  }
 
   let approved = [];
   try{
@@ -2298,7 +2338,7 @@ document.getElementById('rolloutBonusBtn').addEventListener('click', async () =>
   }
 
   if(!Array.isArray(state.rolloutBonusHistory)) state.rolloutBonusHistory = [];
-  state.rolloutBonusHistory.push({ amount, count, at: Date.now() });
+  state.rolloutBonusHistory.push({ amount, count, targetName: null, at: Date.now() });
   await saveState();
 
   status.className = 'status-msg ok';
@@ -2697,6 +2737,8 @@ async function init(){
   // called earlier, from checkApprovalAndProceed), refresh it now so the
   // link info shows immediately instead of waiting for the next 30s poll.
   safeRun('renderPendingUsers', renderPendingUsers);
+  safeRun('renderRolloutBonusHistory', renderRolloutBonusHistory);
+  safeRun('populateRolloutBonusTargetSelect', populateRolloutBonusTargetSelect);
   if(dbWasEmpty) await saveState(); // first run — push current state so the DB isn't empty
 }
 
