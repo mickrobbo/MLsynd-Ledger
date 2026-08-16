@@ -2481,8 +2481,9 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     const weeklyBetSumByName = {};
     (state.weeklyIndividualBets || []).forEach(b => {
       if(!b || !b.name || b.pl == null) return;
-      if(!weeklyBetSumByName[b.name]) weeklyBetSumByName[b.name] = { pl: 0, win: 0, loss: 0 };
+      if(!weeklyBetSumByName[b.name]) weeklyBetSumByName[b.name] = { pl: 0, win: 0, loss: 0, maxPl: -Infinity };
       weeklyBetSumByName[b.name].pl += b.pl;
+      weeklyBetSumByName[b.name].maxPl = Math.max(weeklyBetSumByName[b.name].maxPl, b.pl);
       if(b.result === 'Win') weeklyBetSumByName[b.name].win += 1;
       if(b.result === 'Loss') weeklyBetSumByName[b.name].loss += 1;
     });
@@ -2494,7 +2495,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       const outlay = parseFloat(v.outlay) || 0;
       const detailedReturnEntered = v.ret !== '' && v.ret !== undefined && v.ret !== null;
       const weeklyBet = weeklyBetSumByName[name];
-      let pl, indWin, indLoss;
+      let pl, indWin, indLoss, singleBetPl;
       if(detailedReturnEntered){
         // This person's return was actually typed into the detailed table —
         // treat that as the final, reconciled figure. Deliberately does NOT
@@ -2504,6 +2505,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
         pl = ret - outlay;
         indWin = ret > 0 ? 1 : 0;
         indLoss = ret > 0 ? 0 : 1;
+        singleBetPl = pl; // this row IS one bet, so its own pl is the single-bet figure
       } else if(weeklyBet){
         // Detailed table was left blank for this person — use the quick
         // weekly-card amount(s) instead of silently defaulting to a $outlay
@@ -2512,11 +2514,13 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
         pl = weeklyBet.pl;
         indWin = weeklyBet.win;
         indLoss = weeklyBet.loss;
+        singleBetPl = weeklyBet.maxPl; // may itself already be several quick-card bets combined
       } else {
         const ret = parseFloat(v.ret) || 0;
         pl = ret - outlay;
         indWin = ret > 0 ? 1 : 0;
         indLoss = ret > 0 ? 0 : 1;
+        singleBetPl = pl;
       }
       const m = state.members.find(mm => mm.name === name);
       if(!m) return;
@@ -2525,14 +2529,21 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       m.indLoss += indLoss;
       m.pl += pl;
 
-      // if the same name is picked twice in one week (a re-bet), accumulate rather than overwrite
+      // if the same name is picked twice in one week (a re-bet), accumulate
+      // the totals, but track the single BIGGEST bet separately — the
+      // combined pl is what the season/bank totals need, but "Best
+      // individual bet win" on the Dashboard highlights needs to know the
+      // biggest single bet, not the sum of two unrelated ones (e.g. a
+      // $425 win and an unrelated $80 win in the same week shouldn't be
+      // able to out-rank someone else's genuine $500 single bet).
       if(individualEntries[name]){
         individualEntries[name].indWin += indWin;
         individualEntries[name].indLoss += indLoss;
         individualEntries[name].pl += pl;
         individualEntries[name].outlay = (individualEntries[name].outlay || 0) + outlay;
+        individualEntries[name].maxPl = Math.max(individualEntries[name].maxPl, singleBetPl);
       } else {
-        individualEntries[name] = { indWin, indLoss, pl, outlay };
+        individualEntries[name] = { indWin, indLoss, pl, outlay, maxPl: singleBetPl };
       }
     });
 
@@ -2552,8 +2563,9 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
         individualEntries[name].indWin += sum.win;
         individualEntries[name].indLoss += sum.loss;
         individualEntries[name].pl += sum.pl;
+        individualEntries[name].maxPl = Math.max(individualEntries[name].maxPl, sum.maxPl);
       } else {
-        individualEntries[name] = { indWin: sum.win, indLoss: sum.loss, pl: sum.pl, outlay: 0 };
+        individualEntries[name] = { indWin: sum.win, indLoss: sum.loss, pl: sum.pl, outlay: 0, maxPl: sum.maxPl };
       }
     });
 
@@ -3013,9 +3025,10 @@ function renderFixWeekEditor(weekIdx){
       <input type="number" class="fixw-loss" data-i="${i}" step="1" value="${e.indLoss || 0}" title="Losses" style="width:50px;">
       <input type="number" class="fixw-pl" data-i="${i}" step="0.01" value="${e.pl || 0}" title="Total P/L $">
       <button type="button" class="btn-step fixw-remove" data-i="${i}" title="Remove this person's entry">×</button>
+      <input type="number" class="fixw-maxpl" data-i="${i}" step="0.01" value="${e.maxPl != null ? e.maxPl : (e.pl || 0)}" title="Biggest single bet $ — feeds the Dashboard's 'Best individual bet win' highlight" style="grid-column: 2 / 4; margin-top:4px;">
     </div>`).join('');
   editor.innerHTML = `
-    <div class="hint" style="margin-bottom:6px;">Win / Loss are counts (2 wins that week = 2), P/L is the combined dollar result across all their bets that week.</div>
+    <div class="hint" style="margin-bottom:6px;">Win / Loss are counts (2 wins that week = 2), P/L is the combined dollar result across all their bets that week. The extra field below each row is their single BIGGEST bet that week — used for the Dashboard's "Best individual bet win" highlight, which needs the biggest one bet, not the week's combined total.</div>
     <div class="fin-header-row"><span></span><span class="fin-col-lbl">W</span><span class="fin-col-lbl">L</span><span class="fin-col-lbl">P/L $</span></div>
     ${rowsHtml}
     <button type="button" id="fixwAddRowBtn" class="small secondary" style="margin-top:4px;">+ Add person</button>
@@ -3025,7 +3038,7 @@ function renderFixWeekEditor(weekIdx){
     if(!week.individualEntries) week.individualEntries = {};
     // temp placeholder key until a real name is picked — filtered out on save if left blank
     const tempKey = '__new_' + Date.now();
-    week.individualEntries[tempKey] = { indWin: 0, indLoss: 0, pl: 0, outlay: 0 };
+    week.individualEntries[tempKey] = { indWin: 0, indLoss: 0, pl: 0, outlay: 0, maxPl: 0 };
     renderFixWeekEditor(weekIdx);
   });
   editor.querySelectorAll('.fixw-remove').forEach(btn => {
@@ -3056,6 +3069,7 @@ document.getElementById('fixWeekSaveBtn').addEventListener('click', async () => 
     const indWin = parseInt(row.querySelector('.fixw-win').value, 10) || 0;
     const indLoss = parseInt(row.querySelector('.fixw-loss').value, 10) || 0;
     const pl = parseFloat(row.querySelector('.fixw-pl').value) || 0;
+    const maxPl = parseFloat(row.querySelector('.fixw-maxpl').value) || 0;
     const existingOutlay = (week.individualEntries[Object.keys(week.individualEntries)[i]] || {}).outlay || 0;
     // Accumulate rather than overwrite — the whole point of this tool is
     // fixing a week where someone had TWO separate bets, so a second row
@@ -3069,8 +3083,9 @@ document.getElementById('fixWeekSaveBtn').addEventListener('click', async () => 
       rebuilt[name].indLoss += indLoss;
       rebuilt[name].pl += pl;
       rebuilt[name].outlay += existingOutlay;
+      rebuilt[name].maxPl = Math.max(rebuilt[name].maxPl, maxPl);
     } else {
-      rebuilt[name] = { indWin, indLoss, pl, outlay: existingOutlay };
+      rebuilt[name] = { indWin, indLoss, pl, outlay: existingOutlay, maxPl };
     }
   });
 
