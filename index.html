@@ -2018,6 +2018,41 @@ document.getElementById('weekLabel').addEventListener('change', () => {
   }).catch(() => {});
 });
 
+// Group/Lotto outlay-return, Bonus pot, and SGM bonus win had the exact
+// same gap the Week label did — typed in, but never auto-saved anywhere,
+// so a reload mid-week silently reverted them to the hardcoded defaults
+// (Group $12.50, Lotto $80.50, Bonus $10, both Returns blank) while the
+// group bet table's own odds/results sat there correctly restored the
+// whole time, making it look like only THIS section had lost its data.
+// Same debounced-save / restore-on-load treatment as everything else now.
+const GROUP_FINANCIALS_FIELD_IDS = ['gMultiOut', 'gMultiRet', 'gSgmWin', 'gLottoOut', 'gLottoRet', 'gBonus'];
+let groupFinancialsSaveTimer = null;
+function scheduleGroupFinancialsSave(){
+  clearTimeout(groupFinancialsSaveTimer);
+  groupFinancialsSaveTimer = setTimeout(saveGroupFinancialsDraft, 800);
+}
+async function saveGroupFinancialsDraft(){
+  const draft = {};
+  GROUP_FINANCIALS_FIELD_IDS.forEach(id => { draft[id] = document.getElementById(id).value; });
+  state.groupFinancialsDraft = draft;
+  try{
+    await authedFetch('/state/groupFinancialsDraft.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft)
+    });
+  }catch(e){}
+}
+function restoreGroupFinancialsDraft(){
+  const draft = state.groupFinancialsDraft;
+  if(!draft || typeof draft !== 'object') return;
+  GROUP_FINANCIALS_FIELD_IDS.forEach(id => {
+    if(draft[id] !== undefined && draft[id] !== null) document.getElementById(id).value = draft[id];
+  });
+}
+GROUP_FINANCIALS_FIELD_IDS.forEach(id => {
+  document.getElementById(id).addEventListener('input', scheduleGroupFinancialsSave);
+});
+
 function renderEntryTable(){
   renderIndividualEntryTable();
   renderGroupEntryTable();
@@ -2161,18 +2196,36 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
     }));
   state.weeklyIndividualBets = rows;
   saveState();
-  status.className = 'status-msg ok';
-  status.textContent = 'Saved — now showing on the dashboard.';
-  showToast('Saved');
+  // This button only ever updates the dashboard preview card — it never
+  // touches season totals, only "Save Week" further down does that. That
+  // split is exactly how a genuine bet went missing before: a first bet
+  // gets entered, Save Week runs, everyone's totals update correctly —
+  // then a SECOND bet comes in later (e.g. cashed out early after the
+  // fact) and only gets pushed here, which looks completely successful
+  // ("Saved — now showing on the dashboard") but silently never reaches
+  // anyone's actual P/L, since Save Week doesn't automatically re-run.
+  // Checking whether the currently-selected week already exists in
+  // history is what tells us this exact trap is happening right now.
+  const currentWeekLabel = document.getElementById('weekLabel').value;
+  const alreadySavedWeek = currentWeekLabel && (state.history || []).some(h => h.label === currentWeekLabel);
+  if(alreadySavedWeek){
+    status.className = 'status-msg error';
+    status.textContent = `Saved to the dashboard preview — but "${currentWeekLabel}" was already saved to the season totals earlier. This change won't count toward anyone's P/L until you scroll down and hit Save Week again.`;
+  } else {
+    status.className = 'status-msg ok';
+    status.textContent = 'Saved to the dashboard preview. Remember: this only counts toward season totals once you hit Save Week below (for anyone left blank in the detailed table).';
+  }
 });
 
 function clearEntryInputs(){
   indDraftRows = [ { name:'', outlay:'50', ret:'' }, { name:'', outlay:'50', ret:'' } ];
   state.groupEntryDraft = {};
   state.weekLabelDraft = null;
+  state.groupFinancialsDraft = null;
   authedFetch('/state/groupEntryDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   authedFetch('/state/individualBetDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   authedFetch('/state/weekLabelDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
+  authedFetch('/state/groupFinancialsDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   renderEntryTable();
   document.getElementById('gLottoOut').value = '80.50';
   document.getElementById('gMultiOut').value = '12.50';
@@ -2749,6 +2802,7 @@ async function init(){
   // "Pick a week first" pop up on Save even though the week really had
   // been chosen, just in an earlier session.
   if(state.weekLabelDraft) document.getElementById('weekLabel').value = state.weekLabelDraft;
+  restoreGroupFinancialsDraft();
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
   safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
@@ -2831,6 +2885,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
     if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
     if(state.weekLabelDraft) document.getElementById('weekLabel').value = state.weekLabelDraft;
+    restoreGroupFinancialsDraft();
     if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
     safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
@@ -3001,8 +3056,22 @@ document.getElementById('fixWeekSaveBtn').addEventListener('click', async () => 
     const indWin = parseInt(row.querySelector('.fixw-win').value, 10) || 0;
     const indLoss = parseInt(row.querySelector('.fixw-loss').value, 10) || 0;
     const pl = parseFloat(row.querySelector('.fixw-pl').value) || 0;
-    const existingOutlay = (week.individualEntries[Object.keys(week.individualEntries)[i]] || {}).outlay;
-    rebuilt[name] = { indWin, indLoss, pl, outlay: existingOutlay || 0 };
+    const existingOutlay = (week.individualEntries[Object.keys(week.individualEntries)[i]] || {}).outlay || 0;
+    // Accumulate rather than overwrite — the whole point of this tool is
+    // fixing a week where someone had TWO separate bets, so a second row
+    // for the same name is exactly the case that has to add to the first
+    // one, not silently replace it. A plain `rebuilt[name] = {...}` here
+    // was the exact bug this tool exists to fix, just reintroduced one
+    // level up — confirmed live: two Mick rows ($425, $80.50) only ever
+    // kept the second one.
+    if(rebuilt[name]){
+      rebuilt[name].indWin += indWin;
+      rebuilt[name].indLoss += indLoss;
+      rebuilt[name].pl += pl;
+      rebuilt[name].outlay += existingOutlay;
+    } else {
+      rebuilt[name] = { indWin, indLoss, pl, outlay: existingOutlay };
+    }
   });
 
   if(!confirm(`Save this correction to "${week.label}" and recalculate every member's totals from scratch? This can't be undone with the Undo button (that only reverses the most recent save).`)) return;
