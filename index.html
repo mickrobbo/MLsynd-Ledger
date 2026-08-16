@@ -569,6 +569,15 @@
       </div>
 
       <div class="panel">
+        <h2>Fix a saved week</h2>
+        <div class="hint">For correcting an already-saved week's individual bet numbers directly — e.g. if a second bet for the same person that week wasn't captured correctly at the time. Recalculate above only re-sums what's already stored, so it can't fix a week where the wrong number was saved in the first place; this edits the actual saved entry, then automatically recalculates every member's totals from scratch afterward so the fix ripples through correctly.</div>
+        <select id="fixWeekSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a saved week…</option></select>
+        <div id="fixWeekEditor"></div>
+        <button id="fixWeekSaveBtn" class="small" style="margin-top:8px; display:none;">Save correction &amp; recalculate</button>
+        <div class="status-msg" id="fixWeekStatus"></div>
+      </div>
+
+      <div class="panel">
         <h2>Rename a member — everywhere</h2>
         <div class="hint">Renames someone's Board name, Tipping profile, and sweeps their past picks, all in one go. Only needed if you're renaming someone on their behalf — if they can do it themselves, the Dashboard's own Edit Name does the same thing.</div>
         <select id="adminRenameMemberSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a member…</option></select>
@@ -1999,6 +2008,15 @@ async function saveGroupEntryDraft(){
     });
   }catch(e){}
 }
+// Persisted the same way odds/results already were — see the comment at
+// the weekLabelDraft restore point for why this needed to exist at all.
+document.getElementById('weekLabel').addEventListener('change', () => {
+  state.weekLabelDraft = document.getElementById('weekLabel').value || null;
+  authedFetch('/state/weekLabelDraft.json', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state.weekLabelDraft)
+  }).catch(() => {});
+});
 
 function renderEntryTable(){
   renderIndividualEntryTable();
@@ -2151,8 +2169,10 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
 function clearEntryInputs(){
   indDraftRows = [ { name:'', outlay:'50', ret:'' }, { name:'', outlay:'50', ret:'' } ];
   state.groupEntryDraft = {};
+  state.weekLabelDraft = null;
   authedFetch('/state/groupEntryDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   authedFetch('/state/individualBetDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
+  authedFetch('/state/weekLabelDraft.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'null' }).catch(() => {});
   renderEntryTable();
   document.getElementById('gLottoOut').value = '80.50';
   document.getElementById('gMultiOut').value = '12.50';
@@ -2525,6 +2545,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
     safeRun('renderHistory', renderHistory);
+    safeRun('populateFixWeekSelect', populateFixWeekSelect);
     await saveState();
 
     status.className = 'status-msg ok';
@@ -2574,6 +2595,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
 
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
+  safeRun('populateFixWeekSelect', populateFixWeekSelect);
   await saveState();
   status.className = 'status-msg ok';
   status.textContent = `${last.label} undone.`;
@@ -2720,6 +2742,13 @@ async function init(){
   if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
   if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
   if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
+  // The Week label select was never part of the auto-saved draft the way
+  // odds/results/individual bets are — meaning a genuinely-selected week
+  // would silently revert to blank on any reload while everything else in
+  // the entry table stayed filled in from the restored draft, making
+  // "Pick a week first" pop up on Save even though the week really had
+  // been chosen, just in an earlier session.
+  if(state.weekLabelDraft) document.getElementById('weekLabel').value = state.weekLabelDraft;
   if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
   safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
@@ -2728,6 +2757,7 @@ async function init(){
   safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
+  safeRun('populateFixWeekSelect', populateFixWeekSelect);
   safeRun('renderDues', renderDues);
   safeRun('renderToteBoard', renderToteBoard);
   safeRun('renderSyncStatus', renderSyncStatus);
@@ -2800,6 +2830,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
     if(!Array.isArray(state.weeklyIndividualBets)) state.weeklyIndividualBets = [];
     if(!state.groupEntryDraft || typeof state.groupEntryDraft !== 'object') state.groupEntryDraft = {};
     if(Array.isArray(state.individualBetDraft) && state.individualBetDraft.length > 0) indDraftRows = state.individualBetDraft;
+    if(state.weekLabelDraft) document.getElementById('weekLabel').value = state.weekLabelDraft;
     if(!state.group) state.group = { lottoOut:0, lottoRet:0, multiOut:0, multiRet:0, bonus:0, sgmWin:0 };
     safeRun('renderRoster', renderRoster);
       safeRun('renderBadgeAwards', renderBadgeAwards);
@@ -2820,25 +2851,19 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-document.getElementById('recalcFromHistoryBtn').addEventListener('click', async () => {
-  const status = document.getElementById('recalcStatus');
-  if(!Array.isArray(state.history) || state.history.length === 0){
-    status.className = 'status-msg error';
-    status.textContent = 'No saved history to recalculate from.';
-    return;
-  }
-  if(!confirm(`Recalculate the bank total and every member's stats from all ${state.history.length} saved week(s)? This overwrites the current running totals with fresh numbers rebuilt from history — dues owed and saved weeks themselves aren't touched.`)) return;
-
+// History is treated as ground truth here — rebuild everything from
+// scratch by re-summing it, rather than trusting the incrementally
+// maintained running totals, which a save/undo race could have left out
+// of sync with what history actually shows. Shared by the Recalculate
+// button and by "Fix a saved week" (which needs the exact same rebuild
+// to run immediately after correcting a stored entry).
+function recalculateAllFromHistory(){
   const before = {
     lottoOut: state.group.lottoOut, lottoRet: state.group.lottoRet,
     multiOut: state.group.multiOut, multiRet: state.group.multiRet,
     bonus: state.group.bonus, sgmWin: state.group.sgmWin || 0,
   };
 
-  // History is treated as ground truth here — rebuild everything from
-  // scratch by re-summing it, rather than trusting the incrementally
-  // maintained running totals, which a save/undo race could have left
-  // out of sync with what history actually shows.
   state.group = { lottoOut: 0, lottoRet: 0, multiOut: 0, multiRet: 0, bonus: 0, sgmWin: 0 };
   state.members.forEach(m => {
     m.legs = 0; m.wins = 0; m.losses = 0; m.voids = 0; m.mia = 0;
@@ -2876,6 +2901,18 @@ document.getElementById('recalcFromHistoryBtn').addEventListener('click', async 
   const after = state.group;
   const changed = ['lottoOut','lottoRet','multiOut','multiRet','bonus','sgmWin']
     .filter(k => Math.abs((before[k] || 0) - (after[k] || 0)) > 0.01);
+  return { before, after, changed };
+}
+document.getElementById('recalcFromHistoryBtn').addEventListener('click', async () => {
+  const status = document.getElementById('recalcStatus');
+  if(!Array.isArray(state.history) || state.history.length === 0){
+    status.className = 'status-msg error';
+    status.textContent = 'No saved history to recalculate from.';
+    return;
+  }
+  if(!confirm(`Recalculate the bank total and every member's stats from all ${state.history.length} saved week(s)? This overwrites the current running totals with fresh numbers rebuilt from history — dues owed and saved weeks themselves aren't touched.`)) return;
+
+  const { before, after, changed } = recalculateAllFromHistory();
 
   safeRun('renderLeaderboard', renderLeaderboard);
   await saveState();
@@ -2885,6 +2922,103 @@ document.getElementById('recalcFromHistoryBtn').addEventListener('click', async 
     ? 'Recalculated — everything already matched, nothing changed.'
     : `Recalculated — corrected: ${changed.join(', ')}. Was $${changed.map(k => before[k].toFixed(2)).join('/')}, now $${changed.map(k => after[k].toFixed(2)).join('/')}.`;
   showToast('Balances recalculated from history');
+});
+
+// ---------- Fix a saved week ----------
+// Directly edits the individualEntries stored inside a past week's history
+// record — the one thing Recalculate can't touch, since it only re-sums
+// whatever's already there. After saving the correction, immediately runs
+// the exact same rebuild Recalculate does, so the fix is reflected in
+// every member's running totals right away rather than needing a second
+// manual step.
+function populateFixWeekSelect(){
+  const sel = document.getElementById('fixWeekSelect');
+  if(!sel) return;
+  const opts = ['<option value="">Pick a saved week…</option>'];
+  (state.history || []).forEach((w, i) => {
+    const when = w.savedAt ? new Date(w.savedAt).toLocaleDateString() : '';
+    opts.push(`<option value="${i}">${escapeHtml(w.label || ('Week ' + (i+1)))}${when ? ' — ' + when : ''}</option>`);
+  });
+  sel.innerHTML = opts.join('');
+}
+function renderFixWeekEditor(weekIdx){
+  const editor = document.getElementById('fixWeekEditor');
+  const saveBtn = document.getElementById('fixWeekSaveBtn');
+  if(weekIdx === '' || weekIdx == null){
+    editor.innerHTML = '';
+    saveBtn.style.display = 'none';
+    return;
+  }
+  const week = state.history[weekIdx];
+  const entries = Object.entries(week.individualEntries || {});
+  const rowsHtml = entries.map(([name, e], i) => `
+    <div class="fin-row-entry" data-fixrow="${i}">
+      <select class="fixw-name" data-i="${i}">${nameOptionsHtml(name)}</select>
+      <input type="number" class="fixw-win" data-i="${i}" step="1" value="${e.indWin || 0}" title="Wins" style="width:50px;">
+      <input type="number" class="fixw-loss" data-i="${i}" step="1" value="${e.indLoss || 0}" title="Losses" style="width:50px;">
+      <input type="number" class="fixw-pl" data-i="${i}" step="0.01" value="${e.pl || 0}" title="Total P/L $">
+      <button type="button" class="btn-step fixw-remove" data-i="${i}" title="Remove this person's entry">×</button>
+    </div>`).join('');
+  editor.innerHTML = `
+    <div class="hint" style="margin-bottom:6px;">Win / Loss are counts (2 wins that week = 2), P/L is the combined dollar result across all their bets that week.</div>
+    <div class="fin-header-row"><span></span><span class="fin-col-lbl">W</span><span class="fin-col-lbl">L</span><span class="fin-col-lbl">P/L $</span></div>
+    ${rowsHtml}
+    <button type="button" id="fixwAddRowBtn" class="small secondary" style="margin-top:4px;">+ Add person</button>
+  `;
+  saveBtn.style.display = 'inline-block';
+  document.getElementById('fixwAddRowBtn').addEventListener('click', () => {
+    if(!week.individualEntries) week.individualEntries = {};
+    // temp placeholder key until a real name is picked — filtered out on save if left blank
+    const tempKey = '__new_' + Date.now();
+    week.individualEntries[tempKey] = { indWin: 0, indLoss: 0, pl: 0, outlay: 0 };
+    renderFixWeekEditor(weekIdx);
+  });
+  editor.querySelectorAll('.fixw-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.i, 10);
+      const key = entries[i][0];
+      delete week.individualEntries[key];
+      renderFixWeekEditor(weekIdx);
+    });
+  });
+}
+document.getElementById('fixWeekSelect').addEventListener('change', (e) => {
+  renderFixWeekEditor(e.target.value);
+});
+document.getElementById('fixWeekSaveBtn').addEventListener('click', async () => {
+  const status = document.getElementById('fixWeekStatus');
+  const weekIdx = document.getElementById('fixWeekSelect').value;
+  if(weekIdx === ''){ return; }
+  const week = state.history[weekIdx];
+  const editor = document.getElementById('fixWeekEditor');
+
+  const rebuilt = {};
+  editor.querySelectorAll('.fin-row-entry').forEach(row => {
+    const i = row.dataset.fixrow;
+    const nameSel = row.querySelector('.fixw-name');
+    const name = nameSel.value;
+    if(!name) return; // skip rows left without a name picked
+    const indWin = parseInt(row.querySelector('.fixw-win').value, 10) || 0;
+    const indLoss = parseInt(row.querySelector('.fixw-loss').value, 10) || 0;
+    const pl = parseFloat(row.querySelector('.fixw-pl').value) || 0;
+    const existingOutlay = (week.individualEntries[Object.keys(week.individualEntries)[i]] || {}).outlay;
+    rebuilt[name] = { indWin, indLoss, pl, outlay: existingOutlay || 0 };
+  });
+
+  if(!confirm(`Save this correction to "${week.label}" and recalculate every member's totals from scratch? This can't be undone with the Undo button (that only reverses the most recent save).`)) return;
+
+  week.individualEntries = rebuilt;
+  recalculateAllFromHistory();
+  safeRun('renderLeaderboard', renderLeaderboard);
+  safeRun('renderHistory', renderHistory);
+  await saveState();
+
+  status.className = 'status-msg ok';
+  status.textContent = `${week.label} corrected and every member's totals recalculated from scratch.`;
+  showToast('Week corrected');
+  document.getElementById('fixWeekEditor').innerHTML = '';
+  document.getElementById('fixWeekSaveBtn').style.display = 'none';
+  document.getElementById('fixWeekSelect').value = '';
 });
 
 document.getElementById('resetSeasonBtn').addEventListener('click', async () => {
