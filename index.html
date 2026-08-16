@@ -578,6 +578,14 @@
       </div>
 
       <div class="panel">
+        <h2>Clear "missing groupEntries" health check warning</h2>
+        <div class="hint">For weeks where nobody had a group multi leg on purpose (not a data-loss bug) — the health check can't tell "genuinely nothing to record" apart from "field never got saved," so it warns on both. This sets those specific weeks' groupEntries to an empty (but present) record, which is enough to satisfy the check without inventing any leg data — nothing about anyone's stats or the bank changes.</div>
+        <div id="clearGroupWarnList" class="hint" style="margin-bottom:8px;"></div>
+        <button id="clearGroupWarnBtn" class="small secondary">Clear for all flagged weeks</button>
+        <div class="status-msg" id="clearGroupWarnStatus"></div>
+      </div>
+
+      <div class="panel">
         <h2>Rename a member — everywhere</h2>
         <div class="hint">Renames someone's Board name, Tipping profile, and sweeps their past picks, all in one go. Only needed if you're renaming someone on their behalf — if they can do it themselves, the Dashboard's own Edit Name does the same thing.</div>
         <select id="adminRenameMemberSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a member…</option></select>
@@ -3007,7 +3015,40 @@ function populateFixWeekSelect(){
     opts.push(`<option value="${i}">${escapeHtml(w.label || ('Week ' + (i+1)))}${when ? ' — ' + when : ''}</option>`);
   });
   sel.innerHTML = opts.join('');
+  renderClearGroupWarnList();
 }
+// Same detection the Dashboard's health check uses (!h.groupEntries) —
+// kept in sync here so this list always matches what the warning is
+// actually flagging.
+function renderClearGroupWarnList(){
+  const listEl = document.getElementById('clearGroupWarnList');
+  const btn = document.getElementById('clearGroupWarnBtn');
+  if(!listEl || !btn) return;
+  const flagged = (state.history || [])
+    .map((w, i) => ({ i, label: w.label || `(unlabeled, index ${i})` }))
+    .filter(w => !state.history[w.i].groupEntries);
+  if(flagged.length === 0){
+    listEl.textContent = 'No weeks currently flagged.';
+    btn.style.display = 'none';
+  } else {
+    listEl.textContent = `Currently flagged: ${flagged.map(w => w.label).join(', ')}`;
+    btn.style.display = 'inline-block';
+  }
+}
+document.getElementById('clearGroupWarnBtn').addEventListener('click', async () => {
+  const status = document.getElementById('clearGroupWarnStatus');
+  const flagged = (state.history || []).filter(w => !w.groupEntries);
+  if(flagged.length === 0) return;
+  if(!confirm(`Set groupEntries to empty on ${flagged.length} week(s) (${flagged.map(w => w.label).join(', ')})? This only clears the health check warning — it does not add or change any leg, win/loss, or odds data, and doesn't touch the bank or anyone's P/L.`)) return;
+  flagged.forEach(w => { w.groupEntries = {}; });
+  recalculateAllFromHistory();
+  safeRun('renderLeaderboard', renderLeaderboard);
+  await saveState();
+  status.className = 'status-msg ok';
+  status.textContent = `Cleared on ${flagged.length} week(s).`;
+  showToast('Warning cleared');
+  renderClearGroupWarnList();
+});
 function renderFixWeekEditor(weekIdx){
   const editor = document.getElementById('fixWeekEditor');
   const saveBtn = document.getElementById('fixWeekSaveBtn');
@@ -3027,11 +3068,37 @@ function renderFixWeekEditor(weekIdx){
       <button type="button" class="btn-step fixw-remove" data-i="${i}" title="Remove this person's entry">×</button>
       <input type="number" class="fixw-maxpl" data-i="${i}" step="0.01" value="${e.maxPl != null ? e.maxPl : (e.pl || 0)}" title="Biggest single bet $ — feeds the Dashboard's 'Best individual bet win' highlight" style="grid-column: 2 / 4; margin-top:4px;">
     </div>`).join('');
+  // Group multi section — one row per CURRENT roster member (not just
+  // whoever already has an entry), specifically so a week missing
+  // groupEntries entirely can have it built from scratch. Reuses the same
+  // odds/result shape the live Entry tab table uses, under separate
+  // fixg- class names so nothing collides with the real live table.
+  const ge = week.groupEntries || {};
+  const groupRowsHtml = state.members.map(m => {
+    const e = ge[m.name] || {};
+    const oddsVal = e.odds != null ? e.odds : '';
+    const result = e.result || '';
+    return `<div class="entry-row" data-fixgname="${escapeHtml(m.name)}">
+      <span class="entry-col-name name">${escapeHtml(m.name)}</span>
+      <input type="number" class="fixg-odds entry-col-odds" data-name="${escapeHtml(m.name)}" step="0.01" placeholder="Odds" value="${oddsVal}">
+      <select class="fixg-result entry-col-result" data-name="${escapeHtml(m.name)}">
+        <option value=""${!result ? ' selected' : ''}>No bet</option>
+        <option value="Win"${result === 'Win' ? ' selected' : ''}>Win</option>
+        <option value="Loss"${result === 'Loss' ? ' selected' : ''}>Loss</option>
+        <option value="Void"${result === 'Void' ? ' selected' : ''}>Void</option>
+        <option value="MIA"${result === 'MIA' ? ' selected' : ''}>MIA</option>
+      </select>
+    </div>`;
+  }).join('');
   editor.innerHTML = `
     <div class="hint" style="margin-bottom:6px;">Win / Loss are counts (2 wins that week = 2), P/L is the combined dollar result across all their bets that week. The extra field below each row is their single BIGGEST bet that week — used for the Dashboard's "Best individual bet win" highlight, which needs the biggest one bet, not the week's combined total.</div>
     <div class="fin-header-row"><span></span><span class="fin-col-lbl">W</span><span class="fin-col-lbl">L</span><span class="fin-col-lbl">P/L $</span></div>
     ${rowsHtml}
     <button type="button" id="fixwAddRowBtn" class="small secondary" style="margin-top:4px;">+ Add person</button>
+    <h3 style="margin-top:18px;">Group multi</h3>
+    <div class="hint" style="margin-bottom:6px;">Each member's leg result and odds for this week — "No bet" if they weren't in. Only touch this if the health check flagged this week as missing groupEntries, or you know a result here is wrong; leave everyone else exactly as shown.</div>
+    <div class="fin-header-row"><span></span><span class="fin-col-lbl">Odds</span><span class="fin-col-lbl">Result</span></div>
+    ${groupRowsHtml}
   `;
   saveBtn.style.display = 'inline-block';
   document.getElementById('fixwAddRowBtn').addEventListener('click', () => {
@@ -3092,6 +3159,26 @@ document.getElementById('fixWeekSaveBtn').addEventListener('click', async () => 
   if(!confirm(`Save this correction to "${week.label}" and recalculate every member's totals from scratch? This can't be undone with the Undo button (that only reverses the most recent save).`)) return;
 
   week.individualEntries = rebuilt;
+
+  // Group multi — rebuilt from the roster-scoped rows below the
+  // individual bets section. Same "legs = 1 unless MIA" rule the live
+  // Entry tab's own save logic uses, so a week whose groupEntries was
+  // missing entirely gets filled in on exactly the same terms a normal
+  // save would have used at the time.
+  const rebuiltGroupEntries = {};
+  editor.querySelectorAll('.entry-row[data-fixgname]').forEach(row => {
+    const name = row.dataset.fixgname;
+    const oddsEl = row.querySelector('.fixg-odds');
+    const resultEl = row.querySelector('.fixg-result');
+    const result = resultEl.value;
+    if(!result) return; // "No bet" — this member has no entry this week, same as leaving it blank in the live table
+    const oddsRaw = oddsEl.value;
+    const odds = oddsRaw !== '' ? parseFloat(oddsRaw) : null;
+    const legs = result !== 'MIA' ? 1 : 0;
+    rebuiltGroupEntries[name] = { legs, odds, result };
+  });
+  week.groupEntries = rebuiltGroupEntries;
+
   recalculateAllFromHistory();
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
