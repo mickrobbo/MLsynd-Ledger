@@ -235,6 +235,10 @@
   .role-badge.role-full{ background:rgba(199,162,72,.18); color:var(--brass); border:1px solid var(--brass-dim); }
   .role-badge.role-dashboard{ background:rgba(239,234,216,.08); color:var(--muted); border:1px solid var(--line); }
   .role-badge.role-tipping{ background:rgba(111,169,138,.15); color:var(--win); border:1px solid rgba(111,169,138,.4); }
+  .role-badge.role-readonly{ background:rgba(120,160,200,.15); color:#9cc2e6; border:1px solid rgba(120,160,200,.4); }
+  .health-pill.green{ color:var(--win); border-color:rgba(111,169,138,.4); }
+  .health-pill.amber{ color:#E8A15C; border-color:rgba(232,161,92,.4); }
+  .health-pill.red{ color:var(--loss); border-color:rgba(193,96,74,.4); }
   .pending-user-actions select{ flex:1; min-width:130px; }
   .role-group{ border-radius:10px; padding:12px 12px 4px; margin-bottom:12px; border:1px solid; }
   .role-group:last-child{ margin-bottom:0; }
@@ -246,6 +250,8 @@
   .role-group-dashboard .role-group-title{ color:var(--muted); }
   .role-group-tipping{ background:rgba(111,169,138,.08); border-color:rgba(111,169,138,.4); }
   .role-group-tipping .role-group-title{ color:var(--win); }
+  .role-group-readonly{ background:rgba(120,160,200,.06); border-color:rgba(120,160,200,.4); }
+  .role-group-readonly .role-group-title{ color:#9cc2e6; }
   .role-group .pending-user-row{ border-bottom-color:rgba(239,234,216,.08); }
 
   /* Cashed Out toggle (weekly individual bets) — same small-pill language
@@ -523,6 +529,10 @@
     </div>
 
     <div class="tab-panel" id="tab-admin">
+      <div class="panel" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px;">
+        <span style="font-size:11px; color:var(--muted); font-family:'IBM Plex Mono', monospace;">Data health</span>
+        <span class="health-pill" id="ledgerHealthPill" style="display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:10px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; cursor:pointer; border:1px solid var(--line); background:rgba(0,0,0,.15);"></span>
+      </div>
       <div class="panel">
         <h2>Live sync</h2>
         <div class="hint">The ledger and dashboard both connect to the same fixed database automatically — nothing to copy or paste.</div>
@@ -552,6 +562,7 @@
           <input type="file" id="restoreFile" accept="application/json" style="display:none;">
         </div>
         <div class="status-msg" id="backupStatus"></div>
+        <div class="hint" id="lastBackupHint" style="margin-top:6px;"></div>
       </div>
 
       <div class="panel">
@@ -601,6 +612,17 @@
         <h2>Admin — approvals</h2>
         <div class="hint">People who've signed up but aren't approved yet. Choose their access level to approve them.</div>
         <div id="pendingUsersArea"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="panel">
+        <h2>Admin — guest link</h2>
+        <div class="hint">Generates a 2-hour link that opens the Dashboard signed in as the read-only guest — no password needed, no signup, expires automatically. Requires the read-only guest account to already exist (approve one as "Read-only" above first).</div>
+        <button type="button" id="genGuestLinkBtn">🔗 Generate guest link (2h)</button>
+        <div class="status-msg" id="guestLinkStatus"></div>
+        <div id="guestLinkResultWrap" style="display:none; margin-top:8px;">
+          <input type="text" id="guestLinkResultInput" readonly style="width:100%; margin-bottom:6px; font-family:'IBM Plex Mono', monospace; font-size:11px;">
+          <button type="button" id="guestLinkCopyBtn" class="small">📋 Copy link</button>
+          <div class="hint" id="guestLinkExpiryHint" style="margin-top:6px;"></div>
+        </div>
       </div>
       <div class="panel">
         <h2>Admin — access <span class="toggle" id="accessToggle">view</span></h2>
@@ -789,7 +811,7 @@ async function authedFetch(path, options){
 async function renderPendingUsers(){
   const wrap = document.getElementById('pendingUsersArea');
   const approvedWrap = document.getElementById('approvedUsersArea');
-  const roleLabel = { full: 'Full access', dashboard: 'Dashboard only', tipping: 'Tipping only' };
+  const roleLabel = { full: 'Full access', dashboard: 'Dashboard only', tipping: 'Tipping only', readonly: 'Read-only (guest)' };
   try{
     const res = await authedFetch('/users.json');
     const all = await res.json() || {};
@@ -807,6 +829,7 @@ async function renderPendingUsers(){
             <div class="pending-user-email">${escapeHtml(u.email || '')}</div>
           </div>
           <div class="pending-user-actions">
+            <button data-approve-uid="${uid}" data-role="readonly" class="small secondary">Read-only</button>
             <button data-approve-uid="${uid}" data-role="tipping" class="small secondary">Tipping only</button>
             <button data-approve-uid="${uid}" data-role="dashboard" class="small secondary">Dashboard only</button>
             <button data-approve-uid="${uid}" data-role="full" class="small">Full access</button>
@@ -838,12 +861,13 @@ async function renderPendingUsers(){
     if(approved.length === 0){
       approvedWrap.innerHTML = '<div class="empty">No one approved yet.</div>';
     } else {
-      const groups = { full: [], dashboard: [], tipping: [] };
+      const groups = { full: [], dashboard: [], tipping: [], readonly: [] };
       approved.forEach(([uid, u]) => { groups[u.role || 'full'].push([uid, u]); });
       const groupMeta = {
         full: { title: 'Full Access', cls: 'role-group-full' },
         dashboard: { title: 'Dashboard Only', cls: 'role-group-dashboard' },
         tipping: { title: 'Tipping Only', cls: 'role-group-tipping' },
+        readonly: { title: 'Read-only (guests)', cls: 'role-group-readonly' },
       };
       // Roster-link column — surfaces exactly the bug where two different
       // accounts end up pointing at the same member row (or a member has
@@ -856,7 +880,7 @@ async function renderPendingUsers(){
         });
         return options.join('');
       };
-      approvedWrap.innerHTML = ['full', 'dashboard', 'tipping'].map(role => {
+      approvedWrap.innerHTML = ['full', 'dashboard', 'tipping', 'readonly'].map(role => {
         const members = groups[role];
         if(members.length === 0) return '';
         const rows = members.map(([uid, u]) => {
@@ -876,6 +900,7 @@ async function renderPendingUsers(){
                 <option value="full"${role === 'full' ? ' selected' : ''}>Full access</option>
                 <option value="dashboard"${role === 'dashboard' ? ' selected' : ''}>Dashboard only</option>
                 <option value="tipping"${role === 'tipping' ? ' selected' : ''}>Tipping only</option>
+                <option value="readonly"${role === 'readonly' ? ' selected' : ''}>Read-only (guest)</option>
               </select>
               <select data-relink-uid="${uid}" style="margin-top:6px;">${memberOptions(linkedIdx)}</select>
               <button data-remove-uid="${uid}" class="small danger">Remove</button>
@@ -944,7 +969,7 @@ async function renderPendingUsers(){
     if(approved.length === 0){
       squadArea.innerHTML = '<div class="empty">No one has tipping access yet.</div>';
     } else {
-      const sortedSquad = approved.slice().sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
+      const sortedSquad = approved.filter(([, u]) => (u.role || 'full') !== 'readonly').sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
       squadArea.innerHTML = sortedSquad.map(([uid, u]) => {
         const optedOut = u.tippingOptOut === true;
         return `<div class="roster-row" style="align-items:center;">
@@ -989,7 +1014,7 @@ async function getApprovedUsersCache(){
     const res = await authedFetch('/users.json');
     const all = await res.json() || {};
     approvedUsersCache = Object.entries(all)
-      .filter(([uid, u]) => u && u.status === 'approved')
+      .filter(([uid, u]) => u && u.status === 'approved' && (u.role || 'full') !== 'readonly')
       .map(([uid, u]) => ({ uid, name: u.name || '', email: u.email || '', role: u.role || 'full' }));
   }catch(e){
     approvedUsersCache = [];
@@ -1227,7 +1252,7 @@ async function checkApprovalAndProceed(){
     const res = await authedFetch(`/users/${auth.uid}.json`);
     const profile = await res.json() || {};
     if(profile.status === 'approved'){
-      if(profile.role === 'dashboard' || profile.role === 'tipping'){
+      if(profile.role === 'dashboard' || profile.role === 'tipping' || profile.role === 'readonly'){
         showAuthGate('blocked');
         return;
       }
@@ -1346,7 +1371,58 @@ async function loadState(){
   return cached || JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
 
+// Lightweight, data-only health summary — mirrors the Dashboard's
+// computeQuickHealthSummary so both apps agree on the same signal, without
+// re-running the Dashboard's full 15-call diagnostic suite from here.
+function computeQuickHealthSummary(){
+  const fails = [];
+  const warns = [];
+  if(state && Array.isArray(state.members)){
+    const nameCounts = {};
+    state.members.forEach(m => { nameCounts[m.name] = (nameCounts[m.name] || 0) + 1; });
+    const dupes = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
+    if(dupes.length) fails.push(`Duplicate roster names: ${dupes.join(', ')}`);
+    const badDues = state.members.filter(m => isNaN(m.duesOwed) || isNaN(m.duesCommitment));
+    if(badDues.length) fails.push(`Broken dues fields on ${badDues.length} member(s)`);
+    const overOwed = state.members.filter(m => Number(m.duesOwed) > Number(m.duesCommitment));
+    if(overOwed.length) warns.push(`${overOwed.length} member(s) owe more than committed`);
+    const noLink = state.members.filter(m => !m.linkedUid);
+    if(noLink.length) warns.push(`${noLink.length} member(s) not linked to a Tipping account`);
+  }
+  if(state && state.group){
+    const fields = ['lottoOut', 'lottoRet', 'multiOut', 'multiRet', 'bonus', 'sgmWin'];
+    const bad = fields.filter(f => state.group[f] != null && (typeof state.group[f] !== 'number' || isNaN(state.group[f])));
+    if(bad.length) fails.push(`Non-numeric group financial field(s): ${bad.join(', ')}`);
+  }
+  if(state && state.lastSavedAt){
+    const ageDays = (Date.now() - state.lastSavedAt) / 86400000;
+    if(ageDays > 10) warns.push(`Data hasn't been saved in ${Math.round(ageDays)} day(s)`);
+  }
+  const status = fails.length > 0 ? 'red' : (warns.length > 0 ? 'amber' : 'green');
+  const label = fails.length > 0
+    ? `${fails.length} issue${fails.length > 1 ? 's' : ''}`
+    : (warns.length > 0 ? `${warns.length} warning${warns.length > 1 ? 's' : ''}` : 'All good');
+  return { status, label, fails, warns };
+}
+function renderLedgerHealthPill(){
+  const pill = document.getElementById('ledgerHealthPill');
+  if(!pill) return;
+  const summary = computeQuickHealthSummary();
+  const icon = { green: '🟢', amber: '🟡', red: '🔴' };
+  pill.className = 'health-pill ' + summary.status;
+  pill.textContent = `${icon[summary.status]} ${summary.label}`;
+  pill.onclick = () => {
+    const details = [...summary.fails, ...summary.warns];
+    alert(details.length ? details.join('\n') : 'All systems good — no issues found.');
+  };
+}
+
 async function saveState(){
+  try{
+    const auth = await getValidAuth();
+    state.lastSavedAt = Date.now();
+    state.lastSavedBy = (auth && auth.email) || 'Admin';
+  }catch(e){}
   localCacheSet(state);
   try{
     const res = await authedFetch(DATA_PATH, {
@@ -1387,6 +1463,7 @@ function renderToteBoard(){
   animateValue('tbPot', fin.bonusPot, v => '$' + Math.round(v));
   animateValue('tbPl', totalPl, v => fmtMoney(v).replace('+',''));
   document.getElementById('tbPlCell').className = 'toteboard-cell ' + (totalPl >= 0 ? 'pos' : 'neg');
+  safeRun('renderLedgerHealthPill', renderLedgerHealthPill);
 }
 
 function escapeHtml(str){
@@ -2365,6 +2442,48 @@ async function populateRolloutBonusTargetSelect(){
     if([...sel.options].some(o => o.value === prevValue)) sel.value = prevValue;
   }catch(e){}
 }
+// ---- Guest link (time-limited, no-password Dashboard access) ----
+// Writes to /guestLinks/{token} (admin-only write, public read — needs a
+// matching rule; see firebase-rules.json). The token itself carries no
+// secret — it's just a lookup key the Dashboard checks against expiresAt
+// before auto-signing in as the fixed read-only guest account.
+document.getElementById('genGuestLinkBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('genGuestLinkBtn');
+  const status = document.getElementById('guestLinkStatus');
+  const resultWrap = document.getElementById('guestLinkResultWrap');
+  btn.disabled = true;
+  status.className = 'status-msg';
+  status.textContent = 'Generating…';
+  try{
+    const token = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/-/g, '');
+    const createdAt = Date.now();
+    const expiresAt = createdAt + (2 * 60 * 60 * 1000);
+    const res = await authedFetch(`/guestLinks/${token}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ createdAt, expiresAt })
+    });
+    if(!res.ok) throw new Error('Write rejected (status ' + res.status + ') — check firebase-rules.json has a /guestLinks rule.');
+    const url = `https://mlsynddash.netlify.app/?guest=${token}`;
+    document.getElementById('guestLinkResultInput').value = url;
+    document.getElementById('guestLinkExpiryHint').textContent = 'Expires ' + new Date(expiresAt).toLocaleString() + ' — generate a new one after that.';
+    resultWrap.style.display = 'block';
+    status.textContent = '';
+  }catch(e){
+    status.className = 'status-msg error';
+    status.textContent = e.message || 'Could not generate link — try again.';
+  }finally{
+    btn.disabled = false;
+  }
+});
+document.getElementById('guestLinkCopyBtn').addEventListener('click', () => {
+  const input = document.getElementById('guestLinkResultInput');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(() => showToast('Link copied')).catch(() => {
+    document.execCommand('copy');
+    showToast('Link copied');
+  });
+});
+
 document.getElementById('rolloutBonusBtn').addEventListener('click', async () => {
   const btn = document.getElementById('rolloutBonusBtn');
   const status = document.getElementById('rolloutBonusStatus');
@@ -2624,6 +2743,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     status.className = 'status-msg ok';
     status.textContent = `${weekLabel} saved. Leaderboard and report are up to date.`;
     showToast(`${weekLabel} saved`);
+    showBackupReminder();
   }catch(err){
     console.error('save week failed:', err);
     status.className = 'status-msg error';
@@ -2846,35 +2966,74 @@ async function init(){
   if(dbWasEmpty) await saveState(); // first run — push current state so the DB isn't empty
 }
 
+// Extracted so both the Admin → Backup button and the post-Save-Week
+// reminder prompt can trigger the same download without duplicating logic.
+const LAST_BACKUP_KEY = 'mlsynd_last_backup_at';
+async function downloadBackup(){
+  // Also grabs Tipping + user account data, not just the Ledger's own
+  // state — if that extra fetch fails for any reason, still deliver a
+  // state-only backup rather than nothing at all.
+  let tipping = null, users = null;
+  try{
+    const [tippingRes, usersRes] = await Promise.all([
+      authedFetch('/tipping.json'),
+      authedFetch('/users.json')
+    ]);
+    tipping = await tippingRes.json();
+    users = await usersRes.json();
+  }catch(e){}
+
+  const backup = { ...state, __tipping: tipping, __users: users, __exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `mlsynd-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  try{ localStorage.setItem(LAST_BACKUP_KEY, Date.now().toString()); }catch(e){}
+  renderLastBackupHint();
+}
+function renderLastBackupHint(){
+  const el = document.getElementById('lastBackupHint');
+  if(!el) return;
+  let ts = null;
+  try{ ts = localStorage.getItem(LAST_BACKUP_KEY); }catch(e){}
+  if(!ts){ el.textContent = 'No backup downloaded on this device yet.'; return; }
+  const days = (Date.now() - parseInt(ts, 10)) / 86400000;
+  const label = days < 1 ? 'less than a day ago' : `${Math.floor(days)} day${Math.floor(days) === 1 ? '' : 's'} ago`;
+  el.textContent = `Last backup on this device: ${label}.`;
+}
+
+// Soft, dismissible nudge shown once right after a successful Save Week —
+// not on every state change, and not repeated if already showing.
+let backupReminderShown = false;
+function showBackupReminder(){
+  if(backupReminderShown) return;
+  backupReminderShown = true;
+  const el = document.createElement('div');
+  el.id = 'backupReminderBanner';
+  el.style.cssText = 'position:fixed; bottom:0; left:0; right:0; z-index:9999; display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap; background:var(--felt-2); border-top:1px solid var(--brass-dim); padding:12px 16px; padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px)); font-size:12.5px; color:var(--chalk); font-weight:600; box-shadow:0 -8px 24px rgba(0,0,0,.35);';
+  el.innerHTML = '<span>💾 Week saved. Download a backup?</span><button type="button" id="backupReminderYes" style="background:var(--brass); border:none; border-radius:8px; padding:6px 14px; color:#0E1A16; font-size:12px; font-weight:700; cursor:pointer;">Download</button><button type="button" id="backupReminderNo" style="background:none; border:1px solid var(--brass-dim); border-radius:8px; padding:6px 14px; color:var(--chalk); font-size:12px; cursor:pointer;">Not now</button>';
+  document.body.appendChild(el);
+  const dismiss = () => { el.remove(); backupReminderShown = false; };
+  document.getElementById('backupReminderYes').addEventListener('click', async () => {
+    el.querySelector('#backupReminderYes').textContent = 'Downloading…';
+    try{ await downloadBackup(); }catch(e){}
+    dismiss();
+  });
+  document.getElementById('backupReminderNo').addEventListener('click', dismiss);
+}
+
 document.getElementById('backupBtn').addEventListener('click', async () => {
   const status = document.getElementById('backupStatus');
   status.className = 'status-msg';
   status.textContent = 'Preparing backup…';
   try{
-    // Also grabs Tipping + user account data, not just the Ledger's own
-    // state — if that extra fetch fails for any reason, still deliver a
-    // state-only backup rather than nothing at all.
-    let tipping = null, users = null;
-    try{
-      const [tippingRes, usersRes] = await Promise.all([
-        authedFetch('/tipping.json'),
-        authedFetch('/users.json')
-      ]);
-      tipping = await tippingRes.json();
-      users = await usersRes.json();
-    }catch(e){}
-
-    const backup = { ...state, __tipping: tipping, __users: users, __exportedAt: new Date().toISOString() };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0,10);
-    a.href = url;
-    a.download = `mlsynd-backup-${stamp}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await downloadBackup();
     status.className = 'status-msg ok';
     status.textContent = 'Backup downloaded — keep it somewhere safe (Files app, email to yourself, etc).';
   }catch(e){
@@ -2882,6 +3041,7 @@ document.getElementById('backupBtn').addEventListener('click', async () => {
     status.textContent = 'Backup failed: ' + e.message;
   }
 });
+renderLastBackupHint();
 
 document.getElementById('restoreBtn').addEventListener('click', () => {
   document.getElementById('restoreFile').click();
