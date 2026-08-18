@@ -2714,7 +2714,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // store prevRank on each member for movement display next render
     state.members.forEach(m => { m.prevRank = prevRankMap[m.name] || null; });
 
-    // XP awards: 1 XP per $1 won on an individual bet, 100 XP per winning
+    // XP awards: 100 XP per $1 won on an individual bet, 100 XP per winning
     // group leg. Only wins earn XP (a losing individual bet's negative pl
     // is never subtracted — XP is meant to only ever go up from real
     // betting performance; losing it happens in the Casino game, not here).
@@ -2723,7 +2723,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // as every other stat on this record.
     const xpAwarded = {};
     Object.entries(individualEntries).forEach(([name, e]) => {
-      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 1);
+      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 100);
     });
     Object.entries(groupEntries).forEach(([name, e]) => {
       if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 150);
