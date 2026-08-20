@@ -268,6 +268,7 @@
     background:var(--win); color:#0d1f16; border-color:var(--win);
     box-shadow:0 0 8px rgba(111,169,138,.55);
   }
+  .wib-placed-label.checked{ color:var(--win); }
 
   pre#reportText{
     background:#060A08; border:1px solid var(--line); border-radius:6px;
@@ -2155,6 +2156,7 @@ function readWeeklyBetValues(){
     const sgmResultEl = wrap.querySelector(`.wib-sgm-result[data-row="${row}"]`);
     const sgmAmountEl = wrap.querySelector(`.wib-sgm-amount[data-row="${row}"]`);
     const cashOutEl = wrap.querySelector(`.wib-cashout-pill[data-row="${row}"]`);
+    const placedEl = wrap.querySelector(`.wib-placed[data-row="${row}"]`);
     rows.push({
       name: nameEl.value,
       result: resultEl ? resultEl.value : '',
@@ -2162,7 +2164,8 @@ function readWeeklyBetValues(){
       sgm: sgmEl ? sgmEl.checked : false,
       sgmResult: sgmResultEl ? sgmResultEl.value : '',
       sgmAmount: sgmAmountEl && sgmAmountEl.value !== '' ? sgmAmountEl.value : '',
-      cashedOut: cashOutEl ? cashOutEl.classList.contains('active') : false
+      cashedOut: cashOutEl ? cashOutEl.classList.contains('active') : false,
+      placed: placedEl ? placedEl.checked : false
     });
   });
   return rows;
@@ -2209,6 +2212,11 @@ function renderWeeklyIndividualBetsEntry(preserve){
           style="display:${(v.sgm && sgmResult === 'Win') ? 'inline-block' : 'none'}; width:90px; font-size:11px;">
         <button type="button" class="wib-cashout-pill${v.cashedOut ? ' active' : ''}" data-row="${row}">💵 ${v.cashedOut ? 'Cashed Out' : 'Cash Out'}</button>
       </div>
+      <div style="display:flex; align-items:center;${result ? ' display:none;' : ''}">
+        <label class="wib-placed-label${v.placed ? ' checked' : ''}" data-row="${row}" style="display:${result ? 'none' : 'flex'}; align-items:center; gap:5px; font-size:10.5px; color:var(--muted); cursor:pointer;">
+          <input type="checkbox" class="wib-placed" data-row="${row}" ${v.placed ? 'checked' : ''}> Bet's actually been placed (shows on the Dashboard reminder)
+        </label>
+      </div>
     </div>`;
   });
   html += `<button type="button" id="addWeeklyBetBtn" class="small secondary" style="margin-top:4px;">+ Add another bet</button>`;
@@ -2219,7 +2227,15 @@ function renderWeeklyIndividualBetsEntry(preserve){
       if(!amountEl) return;
       amountEl.style.display = sel.value ? 'inline-block' : 'none';
       if(!sel.value) amountEl.value = '';
+      // Once a result is entered it's no longer "outstanding" by definition
+      // — the placed-checkbox row is only relevant while pending.
+      const placedLabel = wrap.querySelector(`.wib-placed-label[data-row="${sel.dataset.row}"]`);
+      if(placedLabel) placedLabel.style.display = sel.value ? 'none' : 'flex';
     });
+  });
+  wrap.querySelectorAll('.wib-placed-label').forEach(label => {
+    const cb = label.querySelector('.wib-placed');
+    cb.addEventListener('change', () => label.classList.toggle('checked', cb.checked));
   });
   wrap.querySelectorAll('.wib-sgm').forEach(cb => {
     cb.addEventListener('change', () => {
@@ -2277,7 +2293,8 @@ document.getElementById('saveWeeklyBetsBtn').addEventListener('click', () => {
       sgm: v.sgm,
       sgmResult: v.sgm && v.sgmResult ? v.sgmResult : null,
       sgmAmount: (v.sgm && v.sgmResult === 'Win' && v.sgmAmount !== '') ? parseFloat(v.sgmAmount) : null,
-      cashedOut: !!v.cashedOut
+      cashedOut: !!v.cashedOut,
+      placed: !!v.placed
     }));
   state.weeklyIndividualBets = rows;
   saveState();
