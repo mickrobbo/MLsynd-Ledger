@@ -210,6 +210,10 @@
   .move-up{ color: var(--win); } .move-down{ color: var(--loss); } .move-same{ color: var(--muted); }
 
   .status-msg{ font-size:12px; color:var(--muted); margin-top:10px; font-family:'IBM Plex Mono', monospace; }
+  .rotation-order-strip{ display:flex; flex-wrap:wrap; gap:6px; }
+  .rotation-order-chip{ font-size:10.5px; padding:4px 9px; border-radius:999px; background:var(--felt); border:1px solid var(--line); color:var(--muted); }
+  .rotation-order-chip.is-active{ border-color:var(--brass); color:var(--brass-light); background:rgba(203,177,102,.12); }
+  .rotation-order-chip.is-next-up{ border-color:var(--brass-light); color:var(--brass-light); box-shadow:0 0 8px rgba(255,224,150,.35); }
   .status-msg.error{ color: var(--loss); } .status-msg.ok{ color: var(--win); }
 
   .hint{ font-size:11px; color: var(--muted); margin-bottom:10px; line-height:1.5; }
@@ -431,6 +435,15 @@
         </div>
         <div class="hint">The dashboard keeps showing this week's results even after saving, so the group can still see how it went — tap this once everyone's had a look, and it'll go blank until real activity starts again next week.</div>
         <div class="status-msg" id="clearMultiStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🎲 Bettor rotation</h2>
+        <div class="hint">Win your first bet → you're locked in again next week, plus a bonus bet this week (auto-ticks SGM below). Lose it → the next person in the order below takes over next week. This never touches Save Week or season totals on its own — you press "Set up next week" explicitly when you're ready to roll over.</div>
+        <div id="rotationOrderEntry"></div>
+        <div id="rotationStatusArea"></div>
+        <button type="button" id="rotationSetupNextBtn" class="secondary" style="margin-top:8px;">Set up next week's bettors →</button>
+        <div class="status-msg" id="rotationStatus"></div>
       </div>
 
       <div class="panel">
@@ -2170,6 +2183,111 @@ function readWeeklyBetValues(){
   });
   return rows;
 }
+// ---------- Bettor rotation ----------
+// Deliberately separate from Save Week's flow, which can legitimately be
+// clicked more than once for the same week (corrections) — if rotation
+// advancement were tied to that, a correction would incorrectly rotate a
+// second time. This only ever runs when the admin explicitly presses
+// "Set up next week's bettors", reading whatever results are currently
+// sitting in the entry form above it (via the same readWeeklyBetValues()
+// the Save button itself uses) without touching season totals, XP, or
+// anything else Save Week is responsible for.
+const ROTATION_DEFAULT_ORDER = ['Murph','Mick','Dean','Tim','Trasky','Billy','Josh','Joffa','Brad','Zak','Damon'];
+
+function renderBettorRotationPanel(){
+  const area = document.getElementById('rotationOrderEntry');
+  const statusArea = document.getElementById('rotationStatusArea');
+  if(!area || !statusArea) return;
+
+  if(!Array.isArray(state.bettorRotationOrder) || state.bettorRotationOrder.length === 0){
+    // First-time setup — pre-filled with the confirmed real starting
+    // state (Mick and Tim active, Trasky next up), not a blank form.
+    area.innerHTML = `
+      <div class="hint" style="margin-bottom:8px;">Set up once — order below, and who's next up if someone loses.</div>
+      <input type="text" id="rotationOrderInput" value="${ROTATION_DEFAULT_ORDER.join(', ')}" style="width:100%; margin-bottom:8px;">
+      <input type="text" id="rotationNextUpInput" placeholder="Next up if someone loses" value="Trasky" style="width:100%;">
+    `;
+    statusArea.innerHTML = `<button type="button" id="rotationConfirmSetupBtn" class="secondary" style="margin-top:8px;">Confirm rotation order</button>`;
+    document.getElementById('rotationConfirmSetupBtn').addEventListener('click', async () => {
+      const order = document.getElementById('rotationOrderInput').value.split(',').map(s => s.trim()).filter(Boolean);
+      const nextUpName = document.getElementById('rotationNextUpInput').value.trim();
+      const idx = order.indexOf(nextUpName);
+      if(order.length === 0 || idx === -1){
+        alert('"Next up" must be a name that appears in the order list.');
+        return;
+      }
+      state.bettorRotationOrder = order;
+      state.bettorRotationNextUpIndex = idx;
+      await saveState();
+      renderBettorRotationPanel();
+    });
+    return;
+  }
+
+  const order = state.bettorRotationOrder;
+  const nextUpIdx = state.bettorRotationNextUpIndex || 0;
+  const activeNames = (state.weeklyIndividualBets || []).map(b => b && b.name).filter(Boolean);
+  area.innerHTML = `<div class="rotation-order-strip">${order.map((name, i) => {
+    const isActive = activeNames.includes(name);
+    const isNextUp = i === nextUpIdx;
+    return `<span class="rotation-order-chip${isActive ? ' is-active' : ''}${isNextUp ? ' is-next-up' : ''}">${escapeHtml(name)}${isNextUp ? ' (next up)' : ''}</span>`;
+  }).join('')}</div>`;
+  statusArea.innerHTML = '';
+}
+
+document.getElementById('rotationSetupNextBtn').addEventListener('click', async () => {
+  const status = document.getElementById('rotationStatus');
+  if(!Array.isArray(state.bettorRotationOrder) || state.bettorRotationOrder.length === 0){
+    status.className = 'status-msg error';
+    status.textContent = 'Confirm the rotation order above first.';
+    return;
+  }
+  const rawRows = readWeeklyBetValues().filter(r => r.name);
+  if(rawRows.length === 0){
+    status.className = 'status-msg error';
+    status.textContent = "No names in this week's individual bets to roll forward.";
+    return;
+  }
+  // Dedupe by name — "+ Add another bet" is a real, supported way to give
+  // the SAME person a second row this week (a bonus bet tracked as its
+  // own row rather than the SGM checkbox), not a second independent
+  // rotation slot. Without this, someone picking up an extra bet would
+  // get counted twice and next week's slate would end up with 3 names
+  // instead of 2. Each unique name's FIRST row (their main bet, in the
+  // order it appears) is what drives their rotation outcome.
+  const currentRows = [];
+  const seenNames = new Set();
+  rawRows.forEach(r => {
+    if(seenNames.has(r.name)) return;
+    seenNames.add(r.name);
+    currentRows.push(r);
+  });
+
+  const unresolved = currentRows.filter(r => r.result !== 'Win' && r.result !== 'Loss');
+  if(unresolved.length > 0){
+    if(!confirm(`${unresolved.map(r => r.name).join(', ')} still ${unresolved.length === 1 ? "doesn't" : "don't"} have a Win/Loss result set. Set up next week anyway? Anyone unresolved will be treated as staying in their current spot.`)){
+      return;
+    }
+  }
+
+  const nextNames = currentRows.map(row => {
+    if(row.result === 'Loss'){
+      const name = state.bettorRotationOrder[state.bettorRotationNextUpIndex];
+      state.bettorRotationNextUpIndex = (state.bettorRotationNextUpIndex + 1) % state.bettorRotationOrder.length;
+      return name;
+    }
+    // Win, or no result set yet (treated as staying put per the confirm above)
+    return row.name;
+  });
+
+  state.weeklyIndividualBets = nextNames.map(name => ({ name, result: '', pl: '', sgm: false, sgmResult: '', sgmAmount: '', cashedOut: false, placed: false }));
+  await saveState();
+  renderBettorRotationPanel();
+  renderWeeklyIndividualBetsEntry();
+  status.className = 'status-msg ok';
+  status.textContent = `Next week's bettors: ${nextNames.join(', ')}.`;
+});
+
 function renderWeeklyIndividualBetsEntry(preserve){
   const wrap = document.getElementById('weeklyIndividualBetsEntry');
   if(state.members.length === 0){
@@ -2231,6 +2349,16 @@ function renderWeeklyIndividualBetsEntry(preserve){
       // — the placed-checkbox row is only relevant while pending.
       const placedLabel = wrap.querySelector(`.wib-placed-label[data-row="${sel.dataset.row}"]`);
       if(placedLabel) placedLabel.style.display = sel.value ? 'none' : 'flex';
+      // A win always grants a bonus bet per the rotation rule — auto-tick
+      // SGM as a convenience default, not a lock; still fully editable if
+      // this particular week is a genuine exception.
+      if(sel.value === 'Win'){
+        const sgmCb = wrap.querySelector(`.wib-sgm[data-row="${sel.dataset.row}"]`);
+        if(sgmCb && !sgmCb.checked){
+          sgmCb.checked = true;
+          sgmCb.dispatchEvent(new Event('change'));
+        }
+      }
     });
   });
   wrap.querySelectorAll('.wib-placed-label').forEach(label => {
@@ -2966,6 +3094,7 @@ async function init(){
       safeRun('renderAdminRenamePanel', renderAdminRenamePanel);
   safeRun('renderEntryTable', renderEntryTable);
   safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
+  safeRun('renderBettorRotationPanel', renderBettorRotationPanel);
   safeRun('renderLeaderboard', renderLeaderboard);
   safeRun('renderHistory', renderHistory);
   safeRun('populateFixWeekSelect', populateFixWeekSelect);
@@ -3088,6 +3217,7 @@ document.getElementById('restoreFile').addEventListener('change', async (e) => {
       safeRun('renderBadgeAwards', renderBadgeAwards);
     safeRun('renderEntryTable', renderEntryTable);
     safeRun('renderWeeklyIndividualBetsEntry', renderWeeklyIndividualBetsEntry);
+    safeRun('renderBettorRotationPanel', renderBettorRotationPanel);
     safeRun('renderLeaderboard', renderLeaderboard);
     safeRun('renderHistory', renderHistory);
     safeRun('renderDues', renderDues);
