@@ -1,0 +1,9 @@
+{
+  "version": "2026-08-20.43",
+  "date": "2026-08-20",
+  "changes": [
+    "New: you can now delete a Hold'em table even with players seated (as long as no hand is actively in progress) — everyone still seated is automatically cashed out to their real balance first, so no XP is lost. Delete option now also available from inside the table itself, not just the browser list",
+    "Fixed: the felt watermark was still getting clipped despite the previous fix — the old fix only constrained width, letting height scale unpredictably based on the source image's own proportions. Now caps both dimensions explicitly, guaranteeing it can't happen regardless of the image's real shape",
+    "Polish: occupied Hold'em seats now carry the same gold accent line used at the top of every panel throughout the app, and the table's stakes are now shown in the oval's own center instead of that space sitting empty between hands"
+  ]
+}
