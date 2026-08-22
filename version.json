@@ -1,0 +1,14 @@
+{
+  "version": "2026-08-22.46",
+  "date": "2026-08-22",
+  "changes": [
+    "New: Craps added to the Games list as a full high-roller table, same visual polish level as Roulette — Pass Line, Don't Pass, Come, Don't Come, Field, Odds behind Pass/Don't Pass (true odds, no house edge), Place bets (4/5/6/8/9/10), Hardways (4/6/8/10), and one-roll Props (Any 7, Any Craps, 2, 3, 11, 12), plus a recent-rolls history strip.",
+    "Fixed: a real Hold'em bug where the hand's own winner could see 'Spectating — no cards this hand' in Your Cards at showdown, even though seats/spectators could already see their revealed cards. Your Cards now uses the same revealed-card data as the seats at showdown instead of a secret fetch that's no longer available by then.",
+    "New: Hold'em showdown result is now a proper banner (glow effect, gold/green highlight, trophy on your own win) with mini playing cards shown next to the winning hand, not just a rank name. Recent Hands now shows the same mini cards for showdown wins.",
+    "New: the Hold'em table's watermark is now the actual MLSYND CASINO wordmark; the Big Blind info moved to a small bubble near the bottom of the table instead of sitting in the center.",
+    "Polish: Hold'em's in-table chat now shows proper message bubbles (yours align right), a labelled header, and a nicer empty state, on both the table and hand-in-progress views.",
+    "Tipping: Rounds 0, 5, 25-29 now show their real names (Opening Round, Gather Round, Wildcard Finals, Qualifying/Elimination Round, Semi Finals, Preliminary Finals, Grand Final) everywhere a round is shown, not just 'Round N'.",
+    "Casino: the live-win flash ticker threshold raised from 300 to 500 XP. Baccarat's Banker bet no longer takes a 5% commission — it now pays 1:1, same as Player. Big Win popups now show a visual of the actual hand (Baccarat/Casino War/Craps) or winning number (Roulette) when available.",
+    "Fixed: Home tab's individual bet amount now colors strictly by Win/Loss result, not just the sign of the dollar figure — a $0.00 loss now shows red instead of green."
+  ]
+}
