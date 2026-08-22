@@ -439,7 +439,7 @@
 
       <div class="panel">
         <h2>🎲 Bettor rotation</h2>
-        <div class="hint">Win your first bet → you're locked in again next week, plus a bonus bet this week (auto-ticks SGM below). Lose it → the next person in the order below takes over next week. This never touches Save Week or season totals on its own — you press "Set up next week" explicitly when you're ready to roll over.</div>
+        <div class="hint">Win your first bet → you're locked in again next week, plus a genuine second bet this weekend at your own stake — a normal row here, counts toward your P/L tally like any other bet, not the SGM checkbox below (that's a separate thing — see its own hint). Lose it → the next person in the order below takes over next week. This never touches Save Week or season totals on its own — you press "Set up next week" explicitly when you're ready to roll over.</div>
         <div id="rotationOrderEntry"></div>
         <div id="rotationStatusArea"></div>
         <button type="button" id="rotationSetupNextBtn" class="secondary" style="margin-top:8px;">Set up next week's bettors →</button>
@@ -2317,7 +2317,7 @@ function renderWeeklyIndividualBetsEntry(preserve){
         <button type="button" class="btn-step wib-remove" data-row="${row}" title="Remove this bet">×</button>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <label style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap;" title="For when this specific bet had a Sportsbet SGM promo attached and it LOST — the free SGM's own win/loss doesn't count toward this person's tally, its proceeds go straight to the bank (see the SGM bonus win field in This week's financials).">
           <input type="checkbox" class="wib-sgm" data-row="${row}" ${v.sgm ? 'checked' : ''}> SGM Bonus
         </label>
         <select class="wib-sgm-result" data-row="${row}" style="display:${v.sgm ? 'inline-block' : 'none'}; font-size:11px;">
@@ -2349,14 +2349,22 @@ function renderWeeklyIndividualBetsEntry(preserve){
       // — the placed-checkbox row is only relevant while pending.
       const placedLabel = wrap.querySelector(`.wib-placed-label[data-row="${sel.dataset.row}"]`);
       if(placedLabel) placedLabel.style.display = sel.value ? 'none' : 'flex';
-      // A win always grants a bonus bet per the rotation rule — auto-tick
-      // SGM as a convenience default, not a lock; still fully editable if
-      // this particular week is a genuine exception.
+      // A win grants a genuine second bet this weekend per the rotation
+      // rule — at the person's own stake, counting toward their tally
+      // like any normal bet. That's a real row here, NOT the SGM
+      // checkbox (SGM is a separate, unrelated promo — see its own
+      // tooltip). Auto-adds a blank row for that same person so there's
+      // somewhere to enter it, once per win rather than stacking a fresh
+      // one on every edit.
       if(sel.value === 'Win'){
-        const sgmCb = wrap.querySelector(`.wib-sgm[data-row="${sel.dataset.row}"]`);
-        if(sgmCb && !sgmCb.checked){
-          sgmCb.checked = true;
-          sgmCb.dispatchEvent(new Event('change'));
+        const current = readWeeklyBetValues();
+        const row = Number(sel.dataset.row);
+        const winnerName = current[row] ? current[row].name : null;
+        const alreadyHasBonusRow = winnerName && current.some((r, i) => i !== row && r.name === winnerName && !r.result);
+        if(winnerName && !alreadyHasBonusRow){
+          current.push({ name: winnerName });
+          renderWeeklyIndividualBetsEntry(current);
+          return;
         }
       }
     });
