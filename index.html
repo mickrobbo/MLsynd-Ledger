@@ -2904,7 +2904,9 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
   }
 });
 
+let undoWeekInFlight = false; // guards against a fast double-tap undoing two weeks instead of one — matters most right when someone's clicking this repeatedly to clean up several accidental saves in a row
 document.getElementById('undoWeekBtn').addEventListener('click', async () => {
+  if(undoWeekInFlight) return;
   const status = document.getElementById('entryStatus');
   if(state.history.length === 0){
     status.className = 'status-msg error';
@@ -2912,6 +2914,10 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
     return;
   }
   if(!confirm('Undo the last saved week? This reverses everyone\'s totals back to before that week.')) return;
+  undoWeekInFlight = true;
+  const btn = document.getElementById('undoWeekBtn');
+  btn.disabled = true;
+  try{
 
   const last = state.history.pop();
   if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
@@ -2945,6 +2951,10 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   await saveState();
   status.className = 'status-msg ok';
   status.textContent = `${last.label} undone.`;
+  } finally {
+    btn.disabled = false;
+    undoWeekInFlight = false;
+  }
 });
 
 // ---------- Leaderboard ----------
