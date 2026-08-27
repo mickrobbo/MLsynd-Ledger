@@ -672,6 +672,18 @@
         <div class="status-msg" id="firstRoundStatus"></div>
       </div>
       <div class="panel">
+        <h2>Tipping — season setup</h2>
+        <div class="hint" id="tippingSeasonYearHint">Current season: —</div>
+        <div class="hint">Archives the current season's final ladder, prize pot, and Joker picks under that year, then resets first round / prize pot / Jokers / round-lock times for the new season in one go. Use this once, at the actual end of the season (including finals) — not the two boxes above, which are for mid-season tweaks. <b>Before running this, open the Dashboard's Tipping tab once yourself</b> so the ladder snapshot this reads from is fully up to date.</div>
+        <div class="row" style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+          <label style="flex:1;">New season year<input type="number" id="newSeasonYearInput" step="1" min="2020" style="width:100%; margin-top:4px;"></label>
+          <label style="flex:1;">New first round<input type="number" id="newSeasonFirstRoundInput" step="1" min="1" value="1" style="width:100%; margin-top:4px;"></label>
+          <label style="flex:1;">New prize pot ($)<input type="number" id="newSeasonPrizePotInput" step="1" min="0" value="0" style="width:100%; margin-top:4px;"></label>
+        </div>
+        <button type="button" id="archiveResetSeasonBtn" class="small danger" style="margin-top:10px;">Archive season &amp; start new one</button>
+        <div class="status-msg" id="archiveResetSeasonStatus"></div>
+      </div>
+      <div class="panel">
         <h2>Tipping — who's submitted</h2>
         <div class="hint">Doesn't show what anyone picked — just whether they've tipped for a round yet.</div>
         <div class="row" style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -1174,6 +1186,109 @@ async function loadFirstRound(){
     document.getElementById('firstRoundInput').value = val != null ? val : 1;
   }catch(e){}
 }
+
+// ---- Tipping admin: season archive & reset ----
+// currentSeasonYear tracked at module scope so the click handler doesn't
+// need a second fetch of the same value loadTippingSeasonYear just read.
+let currentSeasonYear = null;
+async function loadTippingSeasonYear(){
+  const hint = document.getElementById('tippingSeasonYearHint');
+  try{
+    const res = await authedFetch('/tipping/config/year.json');
+    const val = await res.json();
+    // /tipping/config/year didn't exist before this feature was built, so
+    // a genuinely unset value here means "the season already in progress
+    // when this was added" rather than an error — fall back to the actual
+    // current calendar year rather than showing a blank/confusing state.
+    currentSeasonYear = val != null ? Number(val) : new Date().getFullYear();
+    hint.textContent = `Current season: ${currentSeasonYear}${val == null ? ' (assumed — not explicitly set yet)' : ''}`;
+    const newYearInput = document.getElementById('newSeasonYearInput');
+    if(!newYearInput.value) newYearInput.value = currentSeasonYear + 1;
+  }catch(e){
+    hint.textContent = 'Current season: could not load.';
+  }
+}
+
+document.getElementById('archiveResetSeasonBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('archiveResetSeasonStatus');
+  const newYear = Number(document.getElementById('newSeasonYearInput').value);
+  const newFirstRound = document.getElementById('newSeasonFirstRoundInput').value !== '' ? Number(document.getElementById('newSeasonFirstRoundInput').value) : 1;
+  const newPrizePot = document.getElementById('newSeasonPrizePotInput').value !== '' ? Number(document.getElementById('newSeasonPrizePotInput').value) : 0;
+  const outgoingYear = currentSeasonYear != null ? currentSeasonYear : new Date().getFullYear();
+
+  if(!newYear){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Enter a new season year first.';
+    return;
+  }
+  if(!confirm(`Archive the ${outgoingYear} season and reset Tipping for ${newYear}? This wipes all Jokers and round-lock times, and sets first round to ${newFirstRound} and prize pot to $${newPrizePot}. Picks/results history is kept (never touched), only the live config resets. This cannot be undone.`)) return;
+  if(!confirm('Definitely sure? This is your last chance to back out.')) return;
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = 'Archiving…';
+  try{
+    // 1. Read everything the archive needs to capture BEFORE resetting it.
+    const [ladderRes, prizePotRes, jokerRes] = await Promise.all([
+      authedFetch('/tipping/lastComputedLadder.json'),
+      authedFetch('/tipping/config/prizePot.json'),
+      authedFetch('/tipping/joker.json'),
+    ]);
+    const ladderSnapshot = await ladderRes.json();
+    const outgoingPrizePot = await prizePotRes.json();
+    const outgoingJokers = await jokerRes.json();
+
+    if(!ladderSnapshot){
+      statusEl.className = 'status-msg error';
+      statusEl.textContent = 'No ladder snapshot found — open the Dashboard\'s Tipping tab once first (this is what captures the final ladder), then try again.';
+      return;
+    }
+
+    // 2. Write the archive record for the outgoing season.
+    const archiveRes = await authedFetch(`/tippingArchive/${outgoingYear}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        archivedAt: Date.now(),
+        ladder: ladderSnapshot,
+        prizePot: outgoingPrizePot != null ? outgoingPrizePot : 0,
+        jokers: outgoingJokers || {},
+      })
+    });
+    if(!archiveRes.ok){
+      statusEl.className = 'status-msg error';
+      statusEl.textContent = `Archive write failed (HTTP ${archiveRes.status}) — nothing was reset, safe to retry.`;
+      return;
+    }
+
+    // 3. Atomic multi-location reset — one PATCH so this can't half-apply
+    // (e.g. clearing Jokers but leaving the old first round in place).
+    const resetRes = await authedFetch('/tipping.json', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        'config/firstRound': newFirstRound,
+        'config/prizePot': newPrizePot,
+        'config/year': newYear,
+        'joker': null,
+        'roundLockTime': null,
+        'lastComputedLadder': null,
+      })
+    });
+    if(!resetRes.ok){
+      statusEl.className = 'status-msg error';
+      statusEl.textContent = `Archived ${outgoingYear} OK, but the reset itself failed (HTTP ${resetRes.status}) — check firstRound/prizePot/Joker manually before the new season starts.`;
+      return;
+    }
+
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = `${outgoingYear} archived, ${newYear} season ready (Round ${newFirstRound}, $${newPrizePot} pot).`;
+    showToast(`${outgoingYear} season archived — ${newYear} ready to go`);
+    loadPrizePot();
+    loadFirstRound();
+    loadTippingSeasonYear();
+  }catch(e){
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'Could not complete — ' + e.message + '. Check firstRound/prizePot/Joker manually before assuming anything reset.';
+  }
+});
 document.getElementById('saveFirstRoundBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('firstRoundStatus');
   const input = document.getElementById('firstRoundInput');
@@ -1278,6 +1393,7 @@ async function checkApprovalAndProceed(){
         startSmartPolling(renderPendingUsers, 30000);
         loadPrizePot();
         loadFirstRound();
+        loadTippingSeasonYear();
         loadSubmissionsRounds();
       }
       if(!appStarted){ appStarted = true; startApp(); }
