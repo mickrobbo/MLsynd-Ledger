@@ -2991,19 +2991,24 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // store prevRank on each member for movement display next render
     state.members.forEach(m => { m.prevRank = prevRankMap[m.name] || null; });
 
-    // XP awards: 100 XP per $1 won on an individual bet, 100 XP per winning
-    // group leg. Only wins earn XP (a losing individual bet's negative pl
-    // is never subtracted — XP is meant to only ever go up from real
-    // betting performance; losing it happens in the Casino game, not here).
-    // Stored on this week's own history record (xpAwarded: {name: amount})
-    // so Undo Week can reverse the exact same amounts later, same pattern
-    // as every other stat on this record.
+    // XP awards: 150 XP per $1 won on an individual bet, 350 XP per
+    // winning group leg, -100 XP per LOSING group leg (a real change from
+    // the original "XP only ever goes up from betting" design — losses
+    // now cost something here too, not just in the Casino games). A Void
+    // or no bet (MIA) that week costs nothing either way — groupEntries
+    // only ever gets a Win or Loss branch below, so those two results
+    // simply never add anything to xpAwarded, same as always. Individual
+    // bet losses still aren't penalised — only the group multi leg side
+    // of this changed. Stored on this week's own history record
+    // (xpAwarded: {name: amount}) so Undo Week can reverse the exact same
+    // amounts later, same pattern as every other stat on this record.
     const xpAwarded = {};
     Object.entries(individualEntries).forEach(([name, e]) => {
-      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 100);
+      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 150);
     });
     Object.entries(groupEntries).forEach(([name, e]) => {
-      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 150);
+      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 350);
+      else if(e.result === 'Loss' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) - (e.legs * 100);
     });
     await applyXPAwards(xpAwarded);
 
