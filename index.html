@@ -1278,6 +1278,14 @@ document.getElementById('archiveResetSeasonBtn').addEventListener('click', async
       return;
     }
 
+    // 4. Best-effort cleanup of the Joker last-chance push reminder's
+    // one-shot flag (lives outside /tipping, so it's a separate call, not
+    // part of the atomic reset above) — without this, anyone who already
+    // got that reminder last season would never get it again next season.
+    // Not critical enough to fail the whole operation over if it doesn't
+    // land; the season reset itself already succeeded at this point.
+    authedFetch('/pushJokerLastChanceNotified.json', { method: 'DELETE' }).catch(() => {});
+
     statusEl.className = 'status-msg ok';
     statusEl.textContent = `${outgoingYear} archived, ${newYear} season ready (Round ${newFirstRound}, $${newPrizePot} pot).`;
     showToast(`${outgoingYear} season archived — ${newYear} ready to go`);
