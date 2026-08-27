@@ -540,6 +540,24 @@
           <div id="duesXPBackpayStatus" class="status-msg" style="margin-top:6px;"></div>
         </div>
       </div>
+
+      <div class="panel">
+        <h2>Tipping Dues <span class="toggle" id="tippingDuesToggle">edit</span></h2>
+        <div id="tippingDuesEdit" style="display:none;">
+          <div class="hint">A separate, one-off fee for whoever wants to play the Tipping competition — completely independent of the $840 Board dues above, and works for genuinely Tipping-only accounts too (no Board membership needed). Same rule as Board dues: 1 Casino XP per $2 paid, real money only.</div>
+          <div style="display:flex; align-items:center; gap:8px; margin:10px 0;">
+            <label style="font-size:12px; color:var(--muted); flex-shrink:0;">Default fee per person ($)</label>
+            <input type="number" id="tippingDuesDefaultFee" min="0" step="1" style="width:80px;" placeholder="TBD">
+            <button type="button" id="tippingDuesSaveDefaultBtn" style="flex-shrink:0;">Save</button>
+          </div>
+          <div class="hint" id="tippingDuesDefaultFeeStatus" style="margin-bottom:8px;"></div>
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <select id="tippingDuesAddSelect" style="flex:1;"><option value="">Add a participant…</option></select>
+            <button type="button" id="tippingDuesAddBtn">Add</button>
+          </div>
+          <div id="tippingDuesArea"></div>
+        </div>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-admin">
@@ -1944,6 +1962,148 @@ document.getElementById('duesXPBackpayBtn').addEventListener('click', async () =
   updateDuesXPBackpayButtonState();
 });
 
+// ---------- Tipping Dues — a separate, one-off fee, uid-based (not tied
+// to the Board roster the way the $840 dues above are) so it reaches
+// genuinely Tipping-only accounts too. Same "1 XP per $2 paid" rule,
+// via awardXPToUid — the same uid-based awarder the Casino bonus rollout
+// already uses, deliberately NOT applyXPAwards (that one is keyed by
+// squad member name and requires a Board roster entry, which a
+// Tipping-only participant doesn't have). ----------
+async function loadTippingDuesDefaultFee(){
+  try{
+    const res = await authedFetch('/tippingDuesConfig/amountPerPerson.json');
+    const val = await res.json();
+    const input = document.getElementById('tippingDuesDefaultFee');
+    if(input && val != null) input.value = val;
+  }catch(e){}
+}
+document.getElementById('tippingDuesSaveDefaultBtn').addEventListener('click', async () => {
+  const input = document.getElementById('tippingDuesDefaultFee');
+  const status = document.getElementById('tippingDuesDefaultFeeStatus');
+  const val = parseFloat(input.value);
+  if(isNaN(val) || val < 0){ status.textContent = 'Enter a fee of 0 or more.'; return; }
+  try{
+    await authedFetch('/tippingDuesConfig/amountPerPerson.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(val)
+    });
+    status.textContent = `Saved — new participants added from now on default to $${val}.`;
+    showToast('Default tipping fee saved');
+  }catch(e){
+    status.textContent = 'Could not save — try again.';
+  }
+});
+
+// Same approved-accounts source as the Casino bonus rollout target
+// picker — admin-only /users read, the one place in this whole app that
+// can actually see every approved account regardless of role.
+async function populateTippingDuesAddSelect(){
+  const sel = document.getElementById('tippingDuesAddSelect');
+  if(!sel) return;
+  try{
+    const [usersRes, duesRes] = await Promise.all([
+      authedFetch('/users.json'),
+      authedFetch('/tippingDues.json')
+    ]);
+    const all = (await usersRes.json()) || {};
+    const existing = (await duesRes.json()) || {};
+    const approved = Object.entries(all)
+      .filter(([uid, u]) => u && u.status === 'approved' && !existing[uid])
+      .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+    sel.innerHTML = '<option value="">Add a participant…</option>' +
+      approved.map(([uid, u]) => `<option value="${uid}" data-name="${escapeHtml(u.name || u.email || uid.slice(0,8))}">${escapeHtml(u.name || u.email || uid.slice(0,8))}</option>`).join('');
+  }catch(e){}
+}
+document.getElementById('tippingDuesAddBtn').addEventListener('click', async () => {
+  const sel = document.getElementById('tippingDuesAddSelect');
+  const uid = sel.value;
+  if(!uid) return;
+  const name = sel.options[sel.selectedIndex].dataset.name;
+  const defaultFeeInput = document.getElementById('tippingDuesDefaultFee');
+  const commitment = parseFloat(defaultFeeInput.value) || 0;
+  try{
+    await authedFetch(`/tippingDues/${uid}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, commitment, owed: commitment, addedAt: Date.now() })
+    });
+    showToast(`Added ${name} to Tipping Dues`);
+    await populateTippingDuesAddSelect();
+    await renderTippingDues();
+  }catch(e){
+    showToast('Could not add — try again');
+  }
+});
+async function renderTippingDues(){
+  const area = document.getElementById('tippingDuesArea');
+  if(!area) return;
+  await loadTippingDuesDefaultFee();
+  try{
+    const res = await authedFetch('/tippingDues.json');
+    const all = (await res.json()) || {};
+    const entries = Object.entries(all).sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+    if(entries.length === 0){
+      area.innerHTML = '<div class="empty">Nobody added yet — pick someone above.</div>';
+      return;
+    }
+    area.innerHTML = entries.map(([uid, d]) => {
+      const owed = Math.round(d.owed);
+      const commitment = Math.round(d.commitment);
+      return `<div class="dues-row">
+        <span class="dues-name">${escapeHtml(d.name)}${owed <= 0 && commitment > 0 ? ' ✅' : ''}</span>
+        <div class="dues-controls">
+          <span class="dues-amount">$<input type="number" class="tipping-dues-owed-input" data-uid="${uid}" value="${owed}" step="1"><span class="dues-of"> / $${commitment}</span></span>
+          <button class="btn-step tipping-dues-remove" data-uid="${uid}" data-name="${escapeHtml(d.name)}" title="Remove">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+    area.querySelectorAll('.tipping-dues-owed-input').forEach(inp => {
+      inp.addEventListener('change', async (e) => {
+        const uid = e.target.dataset.uid;
+        const d = all[uid];
+        const before = Math.round(d.owed);
+        const val = parseFloat(e.target.value);
+        const newOwed = Math.max(0, Math.min(Math.round(d.commitment), isNaN(val) ? 0 : val));
+        const paid = before - newOwed;
+        try{
+          await authedFetch(`/tippingDues/${uid}/owed.json`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newOwed)
+          });
+          if(paid > 0){
+            const xp = Math.floor(paid / 2);
+            if(xp > 0) await awardXPToUid(uid, xp, `Tipping dues payment ($${paid})`);
+          }
+          renderTippingDues();
+        }catch(err){
+          showToast('Could not save — try again');
+        }
+      });
+    });
+    area.querySelectorAll('.tipping-dues-remove').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const uid = e.target.dataset.uid;
+        const name = e.target.dataset.name;
+        if(!confirm(`Remove ${name} from Tipping Dues? This doesn't claw back any XP already awarded.`)) return;
+        try{
+          await authedFetch(`/tippingDues/${uid}.json`, { method: 'DELETE' });
+          showToast(`Removed ${name}`);
+          await populateTippingDuesAddSelect();
+          renderTippingDues();
+        }catch(err){
+          showToast('Could not remove — try again');
+        }
+      });
+    });
+  }catch(e){
+    area.innerHTML = '<div class="empty">Could not load Tipping Dues.</div>';
+  }
+}
+const tippingDuesToggle = document.getElementById('tippingDuesToggle');
+const tippingDuesEdit = document.getElementById('tippingDuesEdit');
+tippingDuesToggle.addEventListener('click', () => {
+  const opening = tippingDuesEdit.style.display === 'none';
+  tippingDuesEdit.style.display = opening ? 'block' : 'none';
+  if(opening) populateTippingDuesAddSelect();
+});
+
 // ---------- Roster ----------
 const rosterToggle = document.getElementById('rosterToggle');
 const rosterEdit = document.getElementById('rosterEdit');
@@ -3246,6 +3406,8 @@ async function init(){
   safeRun('renderHistory', renderHistory);
   safeRun('populateFixWeekSelect', populateFixWeekSelect);
   safeRun('renderDues', renderDues);
+  safeRun('renderTippingDues', renderTippingDues);
+  safeRun('populateTippingDuesAddSelect', populateTippingDuesAddSelect);
   safeRun('renderToteBoard', renderToteBoard);
   safeRun('renderSyncStatus', renderSyncStatus);
   safeRun('renderSlips', renderSlips);
