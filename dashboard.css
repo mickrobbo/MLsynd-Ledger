@@ -1,0 +1,2596 @@
+  :root{
+    --ink: #08130F; --felt: #0B2B22; --felt-2: #123626; --felt-3: #17402D;
+    --line: rgba(239,234,216,0.12); --brass: #CBB166; --brass-dim: #7d6a34; --brass-light: #F5E8A8;
+    --chalk: #EFEAD8; --muted: #93a89c; --win: #6FA98A; --loss: #C1604A;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background: var(--ink); color: var(--chalk);
+    font-family:'IBM Plex Sans', sans-serif;
+    padding-top: 16px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    min-height:100vh;
+  }
+  .wrap{ max-width: 720px; margin:0 auto; padding: 0 12px; }
+
+  /* ---- Polish layer: transitions, feedback, depth ---- */
+  button, .tab-btn, select, input, .toteboard-cell, .highlight-row, .runner-row, .slip-card{
+    transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease, background-color .2s ease, border-color .2s ease, color .2s ease, opacity .2s ease;
+  }
+  button:active, .tab-btn:active, .race-row:active{ transform: scale(0.93); }
+  button:disabled:active{ transform:none; }
+  .panel{
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 10px 24px rgba(0,0,0,0.28);
+    position: relative;
+    background: linear-gradient(165deg, var(--felt-2) 0%, var(--felt-3) 130%);
+  }
+  .panel::before{
+    content:''; position:absolute; top:0; left:14px; right:14px; height:2px; border-radius:2px;
+    background: linear-gradient(90deg, transparent, var(--brass) 50%, transparent);
+    opacity:.7;
+  }
+  .tab-panel.active{ animation: tabFadeIn .38s cubic-bezier(.16,1,.3,1); }
+  @keyframes tabFadeIn{ from{ opacity:0; transform:translateY(16px) scale(.98); } to{ opacity:1; transform:translateY(0) scale(1); } }
+  .toteboard-cell:active{ transform: scale(0.94); }
+  .value-pulse{ animation: valuePulse 1.1s ease; }
+  @keyframes valuePulse{ 0%{ text-shadow:0 0 14px rgba(199,162,72,.85); } 100%{ text-shadow:none; } }
+  @keyframes riseIn{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
+  .toteboard-cell{ animation: riseIn .4s cubic-bezier(.16,1,.3,1) backwards; }
+  .toteboard-cell:nth-child(1){ animation-delay: .02s; } .toteboard-cell:nth-child(2){ animation-delay: .06s; }
+  .toteboard-cell:nth-child(3){ animation-delay: .10s; } .toteboard-cell:nth-child(4){ animation-delay: .14s; }
+  .toteboard-cell:nth-child(5){ animation-delay: .18s; } .toteboard-cell:nth-child(6){ animation-delay: .22s; }
+
+  #toastHost{ position:fixed; left:0; right:0; bottom:calc(78px + env(safe-area-inset-bottom, 0px)); z-index:10000; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+  .toast{
+    background: linear-gradient(160deg, var(--felt-3), var(--felt-2)); border:1px solid var(--brass-dim); color:var(--chalk);
+    font-family:'IBM Plex Mono', monospace; font-size:12px; padding:11px 20px; border-radius:22px;
+    box-shadow:0 10px 28px rgba(0,0,0,.5), 0 0 0 1px rgba(199,162,72,.15); opacity:0; transform:translateY(16px) scale(.92);
+    animation: toastIn .35s cubic-bezier(.16,1,.3,1) forwards, toastOut .3s ease 2.4s forwards;
+  }
+  @keyframes toastIn{ to{ opacity:1; transform:translateY(0) scale(1); } }
+  @keyframes toastOut{ to{ opacity:0; transform:translateY(-10px) scale(.96); } }
+
+  header{ text-align:center; margin-bottom:16px; position:relative; }
+  header::before{
+    content:''; position:absolute; top:-20px; left:50%; transform:translateX(-50%);
+    width:220px; height:100px; background: radial-gradient(ellipse at center, rgba(199,162,72,.16), transparent 70%);
+    pointer-events:none;
+  }
+  header h1{
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:20px;
+    letter-spacing:3px; text-transform:uppercase; color: var(--brass); margin:0;
+    position:relative; text-shadow: 0 0 18px rgba(199,162,72,.35);
+  }
+  header h1::after{
+    content:''; display:block; width:64px; height:2px; margin:8px auto 0;
+    background: linear-gradient(90deg, transparent, var(--brass), transparent);
+  }
+  .header-banner{
+    max-width:100%; width:340px; height:auto; position:relative;
+    filter: drop-shadow(0 0 22px rgba(199,162,72,.28));
+  }
+  .account-bar{
+    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;
+    margin-top:20px; padding-top:16px; border-top:1px solid var(--line);
+    font-size:11px; color:var(--muted);
+  }
+  .account-bar span#accountName{ font-weight:600; color:var(--chalk); width:100%; text-align:center; margin-bottom:4px; }
+  .pill-btn{
+    background:var(--felt-2); border:1px solid var(--brass-dim); color:var(--chalk); font-size:11px; font-family:'IBM Plex Sans', sans-serif;
+    text-decoration:none; cursor:pointer; padding:6px 12px; border-radius:999px; font-weight:600; line-height:1.2;
+  }
+  .pill-btn:active{ border-color:var(--brass); }
+  .pill-btn.active-toggle{ background:var(--brass-dim); border-color:var(--brass); color:var(--ink); }
+
+  /* ---- Blackjack table + playing cards ---- */
+  .bj-table{
+    background:
+      radial-gradient(ellipse at 32% 22%, rgba(255,255,255,.06) 0%, rgba(255,255,255,0) 35%),
+      radial-gradient(ellipse at 50% 35%, #124631 0%, #0A2A1E 65%, #071c14 100%);
+    border: 1px solid var(--brass-dim); border-radius: 16px;
+    padding: 22px 12px; box-shadow: inset 0 0 50px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.03);
+    position:relative; overflow:hidden;
+  }
+  .bj-table::before{ /* soft ambient spotlight, purely decorative */
+    content:''; position:absolute; top:-20%; left:50%; transform:translateX(-50%);
+    width:140%; height:60%; background: radial-gradient(ellipse, rgba(255,224,150,.06) 0%, rgba(255,224,150,0) 70%);
+    pointer-events:none;
+  }
+  .bj-table::after{
+    /* Flash overlay (kept exactly as-is — the win/lose flash animations
+       below only ever touch background-color, so layering the felt
+       watermark's background-image onto this same element is safe and
+       never fights them, the two properties composite independently).
+       Same low-opacity, embedded-in-the-fabric watermark as the Hold'em
+       table felt, applied here too since this is the other place a real
+       green felt table shows up in the app (Blackjack, and the Hold'em
+       hand view's own board panel — both share this one class). */
+    content:''; position:absolute; inset:0; pointer-events:none; z-index:2;
+    background-image:url('/logo-icon.png');
+    /* Explicit two-dimensional size, same reasoning as the Hold'em oval's
+       watermark fix — guarantees this never grows unexpectedly tall
+       regardless of the source image's real aspect ratio. */
+    background-repeat:no-repeat; background-position:center center; background-size:18% 18%;
+    opacity:.08;
+  }
+  .bj-hand-row{ display:flex; justify-content:center; gap:10px; min-height:88px; align-items:flex-start; flex-wrap:wrap; position:relative; z-index:1; }
+
+  .playing-card{
+    width:56px; height:80px; border-radius:7px; background:linear-gradient(160deg,#FDFBF5,#EDE6D3);
+    border:1px solid rgba(0,0,0,.25); box-shadow:0 4px 10px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.6);
+    position:relative; flex-shrink:0; font-family:'IBM Plex Sans', sans-serif; overflow:hidden;
+  }
+  .playing-card::before{ /* glossy sheen, sits above the face, below the pips (z-index) */
+    content:''; position:absolute; inset:0; z-index:0; border-radius:6px;
+    background: linear-gradient(135deg, rgba(255,255,255,.45) 0%, rgba(255,255,255,0) 32%, rgba(255,255,255,0) 68%, rgba(255,255,255,.12) 100%);
+    pointer-events:none;
+  }
+  .pc-pip{ position:absolute; z-index:1; display:flex; flex-direction:column; align-items:center; line-height:1; font-size:12px; font-weight:800; }
+  .pc-pip-tl{ top:5px; left:5px; }
+  .pc-pip-br{ bottom:5px; right:5px; transform:rotate(180deg); }
+  .pc-suit-mini{ font-size:10px; margin-top:1px; }
+  .pc-suit-big{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:26px; z-index:1; text-shadow:0 1px 1px rgba(0,0,0,.08); }
+  .playing-card.pc-red{ color:#B5342A; }
+  .playing-card.pc-black{ color:#1c1c1c; }
+
+  .playing-card.pc-back{
+    background: repeating-linear-gradient(45deg, var(--brass-dim), var(--brass-dim) 4px, var(--felt-3) 4px, var(--felt-3) 8px);
+    border:1px solid var(--brass); box-shadow:0 4px 10px rgba(0,0,0,.5);
+  }
+  .playing-card.pc-back::after{
+    content:''; position:absolute; inset:5px; border:1px solid var(--brass-light); border-radius:4px; opacity:.6;
+  }
+
+  /* Deal-in: each card flies/settles in from above, staggered per-card via
+     inline animation-delay set in JS — this + the synthesized card-flick
+     sound on each deal is what actually sells "cards being dealt" rather
+     than just appearing. */
+  @keyframes cardDealIn{
+    0%{ opacity:0; transform: translateY(-46px) translateX(8px) rotate(-10deg) scale(.82); }
+    65%{ opacity:1; }
+    100%{ opacity:1; transform: translateY(0) translateX(0) rotate(0deg) scale(1); }
+  }
+  .playing-card.pc-dealt{ animation: cardDealIn .4s cubic-bezier(.22,.9,.32,1.15) both; }
+
+  /* Dealer's hole card: a real 3D flip rather than a swap, front=back
+     pattern, back=the actual card, rotated into view on reveal. */
+  .pc-flip-wrap{ width:56px; height:80px; perspective:700px; flex-shrink:0; }
+  .pc-flip-inner{ position:relative; width:100%; height:100%; transition: transform .55s cubic-bezier(.4,.2,.15,1); transform-style:preserve-3d; }
+  .pc-flip-wrap.pc-flipped .pc-flip-inner{ transform: rotateY(180deg); }
+  .pc-flip-face{ position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden; }
+  .pc-flip-face.pc-flip-back{ transform: rotateY(180deg); }
+
+  .bj-chip{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:46px; height:46px; border-radius:50%; font-weight:700; font-size:12px;
+    background: radial-gradient(circle at 35% 30%, var(--brass-light), var(--brass) 60%, var(--brass-dim) 100%);
+    color:#2a2005; border:3px dashed rgba(255,255,255,.55); box-shadow:0 3px 6px rgba(0,0,0,.5), 0 0 0 rgba(255,224,150,0);
+    transition: transform .18s cubic-bezier(.34,1.6,.6,1);
+  }
+  @keyframes chipPulse{
+    0%{ transform:scale(1) rotate(0deg); }
+    35%{ transform:scale(1.3) rotate(-18deg); }
+    65%{ transform:scale(1.12) rotate(10deg); }
+    100%{ transform:scale(1) rotate(0deg); }
+  }
+  .bj-chip.pc-chip-pulse{ animation: chipPulse .45s cubic-bezier(.34,1.6,.5,1); }
+  /* Roulette & Craps: the chip readout is tappable to type any custom
+     amount (see the click handlers on rouletteChipDisplay/crapsChipDisplay)
+     — no house limit on either table, the 10-250 buttons are just quick
+     picks. A small pencil badge hints it's editable, not just a display. */
+  #rouletteChipDisplay, #crapsChipDisplay{ cursor:pointer; position:relative; }
+  #rouletteChipDisplay::after, #crapsChipDisplay::after{
+    content:'✎'; position:absolute; bottom:-3px; right:-3px; width:16px; height:16px; border-radius:50%;
+    background:var(--ink); border:1px solid var(--brass-light); color:var(--brass-light);
+    font-size:9px; display:flex; align-items:center; justify-content:center;
+  }
+
+  /* Idle "breathing" glow so the primary action always reads as tappable —
+     a real table doesn't sit static waiting for you to notice the button. */
+  @keyframes ctaGlow{
+    0%,100%{ box-shadow:0 4px 10px rgba(0,0,0,.4), 0 0 0 rgba(255,214,120,0); }
+    50%{ box-shadow:0 4px 14px rgba(0,0,0,.4), 0 0 18px rgba(255,214,120,.55); }
+  }
+  #bjDealBtn, #bjHitBtn, #bjStandBtn, #bacDealBtn, #rouletteSpinBtn, #warDealBtn, #slotsSpinBtn, #vpDealBtn{ animation: ctaGlow 2.2s ease-in-out infinite; }
+
+  /* A soft diagonal sheen that sweeps across every pill button in this tab
+     on a loop — small, but it's what pushes buttons from "flat rectangle"
+     to "polished casino chrome". */
+  #tab-casino .pill-btn{
+    position:relative; overflow:hidden;
+    transition: transform .1s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  #tab-casino .pill-btn::after{
+    content:''; position:absolute; top:0; left:-60%; width:40%; height:100%;
+    background: linear-gradient(115deg, transparent, rgba(255,255,255,.35), transparent);
+    transform: skewX(-20deg); animation: btnSheen 2.6s ease-in-out infinite;
+  }
+  @keyframes btnSheen{ 0%{ left:-60%; } 35%{ left:130%; } 100%{ left:130%; } }
+  #tab-casino .pill-btn:active{ transform: scale(.9); border-color:var(--brass); box-shadow:0 0 16px rgba(255,214,120,.6); }
+
+  /* Outcome text: bigger, bouncier entrance than a plain fade, plus a
+     dedicated jackpot-tier treatment for a Blackjack specifically. */
+  @keyframes outcomeGlow{
+    0%{ text-shadow:0 0 0 rgba(255,224,150,0); transform:scale(.6); opacity:0; }
+    35%{ transform:scale(1.18); opacity:1; }
+    55%{ text-shadow:0 0 20px rgba(255,224,150,.75); transform:scale(.96); }
+    100%{ text-shadow:0 0 8px rgba(255,224,150,.35); transform:scale(1); }
+  }
+  .bj-outcome-pop{ animation: outcomeGlow .6s cubic-bezier(.3,1.6,.4,1) both; display:inline-block; }
+  @keyframes jackpotShimmer{
+    0%,100%{ background-position: 0% 50%; }
+    50%{ background-position: 100% 50%; }
+  }
+  .bj-outcome-jackpot{
+    background: linear-gradient(90deg, var(--brass), #FFF3C4, var(--brass-light), #FFF3C4, var(--brass));
+    background-size: 300% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation: outcomeGlow .6s cubic-bezier(.3,1.6,.4,1) both, jackpotShimmer 1.4s linear infinite .6s;
+  }
+
+  /* ---- Casino game selector + Roulette wheel ---- */
+  /* 3x2 grid, not a 6-across nowrap row — six games squeezed into one row
+     forced 9.5px unreadable nowrap text; a grid gives each bubble real
+     width so the label can breathe (and wrap to 2 lines) at a size people
+     can actually read. */
+  .game-bubble-row{ display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+  .game-bubble{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    padding:14px 6px; border-radius:14px; cursor:pointer;
+    background: linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--brass-dim);
+    transition: transform .1s ease, box-shadow .2s ease;
+  }
+  .game-bubble:active{ transform:scale(.96); }
+  .game-bubble-icon{ font-size:25px; line-height:1; }
+  .game-bubble-label{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:12px; letter-spacing:.3px;
+    text-transform:uppercase; color:var(--chalk); white-space:normal; text-align:center; line-height:1.15;
+  }
+  .game-bubble.active{
+    background: linear-gradient(165deg, var(--brass-light), var(--brass));
+    border-color: var(--brass-light);
+    box-shadow: 0 0 20px rgba(255,214,120,.45), 0 4px 10px rgba(0,0,0,.3);
+  }
+  .game-bubble.active .game-bubble-label{ color:#2a2005; }
+
+  /* A small fanned pair of real playing cards (one black suit, one red)
+     rather than a plain unicode glyph — the red/black contrast is what
+     makes it read as genuinely "cards" at a glance, matching the colour
+     weight of the other bubble icons instead of looking flat next to
+     them. */
+  .vp-icon-cards{ position:relative; width:30px; height:27px; display:inline-block; }
+  .vp-icon-card{
+    position:absolute; top:0; width:20px; height:27px; border-radius:3px; background:#f0ead8;
+    box-shadow:0 2px 4px rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center;
+    border:1px solid rgba(0,0,0,.15);
+  }
+  .vp-icon-card-1{ left:0; transform:rotate(-9deg); z-index:1; }
+  .vp-icon-card-2{ left:9px; transform:rotate(9deg); z-index:2; }
+  .vp-icon-pip{ font-size:10.5px; font-weight:800; line-height:1; }
+  .vp-pip-black{ color:#1a1a1a; }
+  .vp-pip-red{ color:#a8283a; }
+  /* Same pearlescent-white gradient as the real roulette ball, sized for
+     the game-bubble icon slot — gives Roulette its own on-theme icon
+     instead of a flat white-circle emoji. */
+  .roulette-ball-icon{
+    display:inline-block; width:20px; height:20px; border-radius:50%;
+    background: radial-gradient(circle at 30% 25%, #ffffff, #e2e2e2 45%, #a8a8a8 75%, #757575);
+    box-shadow:0 2px 4px rgba(0,0,0,.6), 0 0 4px rgba(255,255,255,.5), 0 1px 1px rgba(255,255,255,.6) inset;
+  }
+  /* Hold'em's own icon — a real poker chip (striped edge + a lighter
+     inlay disc), not the dice glyph Craps already legitimately owns.
+     Built the same way the Roulette ball icon is, rather than an emoji,
+     so it renders identically everywhere. */
+  .holdem-chip-icon{
+    display:inline-block; width:26px; height:26px; border-radius:50%; position:relative;
+    background: repeating-conic-gradient(#8c2a22 0deg 30deg, #f0ead8 30deg 60deg);
+    box-shadow:0 3px 6px rgba(0,0,0,.55), inset 0 1px 2px rgba(255,255,255,.35), inset 0 -2px 3px rgba(0,0,0,.35);
+  }
+  .holdem-chip-icon::after{
+    content:''; position:absolute; inset:5px; border-radius:50%;
+    background: radial-gradient(circle at 32% 28%, var(--brass-light), var(--brass) 60%, var(--brass-dim) 100%);
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.5), inset 0 -2px 3px rgba(0,0,0,.35);
+  }
+  /* Perfect Pairs / Pairs toggle icon — a tiny CSS-built card, not an
+     emoji. 🎴 and 🂠 were rendering as two different generic fallback
+     glyphs (neither an actual card) depending on the game, which is
+     exactly why the two pills looked mismatched. A custom-built icon
+     renders identically everywhere, same as the Video Poker bubble icon
+     already does. */
+  .pp-pill-icon{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:13px; height:17px; border-radius:2px; background:#f0ead8;
+    box-shadow:0 1px 2px rgba(0,0,0,.45); border:1px solid rgba(0,0,0,.15);
+    vertical-align:-3px; margin-right:3px;
+  }
+  .pp-pill-icon span{ font-size:9px; font-weight:800; color:#a8283a; line-height:1; }
+
+  /* ---- Casino hero — XP balance, rank, next-milestone progress ---- */
+  .casino-hero{
+    position:relative; overflow:hidden;
+    background: radial-gradient(circle at 50% -20%, rgba(255,214,120,.22), transparent 62%), linear-gradient(165deg, var(--felt-2), var(--felt-3));
+  }
+  .casino-hero-glow{ padding-top:2px; }
+  .casino-hero-xp{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:46px; color:var(--brass-light);
+    text-shadow: 0 0 26px rgba(255,214,120,.55); margin:2px 0 1px; letter-spacing:.5px; line-height:1.1;
+  }
+  .casino-hero-rank{
+    font-size:11.5px; font-weight:700; letter-spacing:.3px; color:var(--brass);
+    min-height:15px; margin-bottom:2px;
+  }
+  .casino-milestone-track{ max-width:300px; margin:12px auto 6px; }
+  .casino-milestone-bar{
+    height:9px; border-radius:999px; background:rgba(0,0,0,.35); overflow:hidden;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03);
+  }
+  .casino-milestone-fill{
+    height:100%; border-radius:999px; width:0%;
+    background:linear-gradient(90deg, var(--brass-dim), var(--brass-light));
+    box-shadow: 0 0 10px rgba(255,214,120,.6);
+    transition: width .7s cubic-bezier(.22,.9,.32,1.15);
+  }
+  .casino-hero-actions{ display:flex; gap:10px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+  .casino-hero-action-btn{
+    flex:1; max-width:180px; padding:13px 10px; border-radius:14px; cursor:pointer;
+    background: linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--brass-dim);
+    color:var(--brass-light); font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:13px;
+    letter-spacing:.4px; text-transform:uppercase; box-shadow: 0 4px 10px rgba(0,0,0,.25);
+    transition: transform .1s ease, box-shadow .2s ease;
+  }
+  .casino-hero-action-btn:active{ transform:scale(.96); }
+  .casino-hero-action-btn:disabled{ opacity:.5; cursor:default; }
+  #weeklyBonusBtn.claimed{
+    background: linear-gradient(165deg, var(--brass-light), var(--brass)); color:#2a2005; border-color:var(--brass-light);
+    box-shadow: 0 0 14px rgba(255,214,120,.4);
+  }
+  /* Home tab's Casino XP teaser — same felt/gold language as the Casino
+     hero card, so the balance is glanceable without opening Casino first. */
+  .casino-teaser-panel{
+    position:relative; overflow:hidden; padding:14px 16px;
+    background: radial-gradient(circle at 8% -30%, rgba(255,214,120,.16), transparent 60%), linear-gradient(165deg, var(--felt-2), var(--felt-3));
+  }
+  .casino-teaser-row{ display:flex; align-items:center; gap:12px; }
+  .casino-teaser-icon{ font-size:26px; flex-shrink:0; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+  .casino-teaser-mid{ flex:1; min-width:0; }
+  .casino-teaser-lbl{
+    font-family:'Barlow Condensed', sans-serif; font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--muted);
+  }
+  .casino-teaser-val{
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:26px; color:var(--brass-light);
+    text-shadow: 0 0 16px rgba(255,214,120,.4); line-height:1.15;
+  }
+  .casino-teaser-btn{ flex-shrink:0; padding:10px 16px !important; font-size:12px !important; }
+
+  /* ---- Spin the Wheel — restored original "dailyspin" implementation
+     (recovered from an earlier build the user provided), replacing the
+     newer wheel-fortune version. A real game accessed via its own wide
+     button below the game grid, not a hero quick-action. ---- */
+  .game-bubble-wide{
+    display:block; width:100%; margin-top:12px; padding:13px; border-radius:14px; cursor:pointer;
+    background: linear-gradient(165deg, var(--brass-light), var(--brass)); border:1px solid var(--brass-light);
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px; letter-spacing:.5px; text-transform:uppercase;
+    color:#2a2005; box-shadow:0 4px 12px rgba(0,0,0,.3); transition: transform .1s ease;
+  }
+  .game-bubble-wide:active{ transform:scale(.98); }
+  .dailyspin-wheel-wrap{ position:relative; width:250px; height:250px; margin:14px auto 10px; filter: drop-shadow(0 14px 26px rgba(0,0,0,.7)); }
+  .dailyspin-bezel-outer{
+    position:absolute; inset:-11px; border-radius:50%;
+    background:
+      radial-gradient(circle at 30% 22%, rgba(255,255,255,.6), rgba(255,255,255,0) 30%),
+      conic-gradient(from -40deg, #fdf0c8, #d4af5a, #8a6620, #6b4f1a, #b9903c, #fdf0c8, #b9903c, #6b4f1a, #8a6620, #d4af5a, #fdf0c8);
+    box-shadow: 0 4px 14px rgba(0,0,0,.55), inset 0 4px 6px rgba(255,255,255,.55), inset 0 -5px 9px rgba(0,0,0,.6);
+  }
+  .dailyspin-bezel-outer::after{
+    content:''; position:absolute; inset:6px; border-radius:50%;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.5), inset 0 -1px 2px rgba(255,255,255,.25);
+    border:1px solid rgba(0,0,0,.3);
+  }
+  .dailyspin-wheel{
+    position:absolute; inset:0; border-radius:50%;
+    box-shadow: inset 0 0 32px rgba(0,0,0,.7), inset 0 0 0 3px rgba(0,0,0,.55), inset 0 3px 5px rgba(255,255,255,.1);
+    transition: transform 4s cubic-bezier(.1,.6,.15,1);
+  }
+  .dailyspin-dividers{
+    position:absolute; inset:0; border-radius:50%; pointer-events:none;
+    background: repeating-conic-gradient(rgba(255,224,160,.5) 0deg 0.3deg, transparent 0.3deg 15deg);
+  }
+  .dailyspin-glass-shine{
+    position:absolute; inset:0; border-radius:50%; pointer-events:none;
+    background: linear-gradient(125deg, rgba(255,255,255,.25) 0%, rgba(255,255,255,0) 30%, rgba(255,255,255,0) 68%, rgba(255,255,255,.1) 100%);
+  }
+  .dailyspin-labels-layer{ position:absolute; inset:0; z-index:2; pointer-events:none; }
+  .dailyspin-segment-label{
+    position:absolute; top:50%; left:50%; width:38px; margin:-7px 0 0 -19px;
+    font-size:9.5px; font-weight:800; text-align:center; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.75);
+    transition: transform 4s cubic-bezier(.1,.6,.15,1);
+  }
+  .dailyspin-segment-label.jackpot-label{
+    width:24px; margin-left:-12px; font-size:15px; line-height:1;
+    text-shadow:0 1px 3px rgba(0,0,0,.5);
+  }
+  .dailyspin-pointer{
+    position:absolute; top:-15px; left:50%; margin-left:-9px; width:0; height:0; z-index:5;
+    border-left:9px solid transparent; border-right:9px solid transparent; border-top:17px solid var(--brass-light);
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
+  }
+  .dailyspin-hub{
+    position:absolute; top:50%; left:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%;
+    background: radial-gradient(circle at 32% 26%, #fff6de, var(--brass-light) 35%, var(--brass) 65%, var(--brass-dim) 100%);
+    display:flex; align-items:center; justify-content:center; font-size:20px;
+    box-shadow:0 4px 10px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.35); z-index:4;
+  }
+  .dailyspin-wheel.pc-winner-flash{ animation: roulettePocketFlash .5s ease 3; }
+  /* Big Wheel's per-segment labels — real text now that it's down to 24
+     wedges (same count/size Daily Spin already proved legible at), same
+     counter-rotation trick so the numbers stay upright through the spin. */
+  .bigwheel-segment-label{
+    position:absolute; top:50%; left:50%; width:32px; margin:-9px 0 0 -16px;
+    font-size:13px; font-weight:800; text-align:center; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.8);
+    transition: transform 6s cubic-bezier(.1,.6,.15,1);
+  }
+  .bigwheel-segment-label.joker-label{ font-size:16px; }
+  /* Big Wheel spins noticeably longer than Daily Spin's free-spin wheel —
+     an ID-scoped override since #bigWheelWheel otherwise inherits the
+     shared .dailyspin-wheel class's 4s transition, and Daily Spin's own
+     timing shouldn't change. */
+  #bigWheelWheel{ transition-duration: 6s; }
+
+  /* ---- Casino landing hub — Games / Rules / How to earn XP / Badges ---- */
+  /* Grid, not a flex-wrap row — learned from the earlier 6-across game-
+     bubble bug: cramming items into one row forces small, awkward text.
+     A 2x2 grid gives each bubble real width no matter how many there are. */
+  .casino-hub-row{ display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-top:4px; }
+  .casino-hub-bubble{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    padding:16px 8px; border-radius:16px; cursor:pointer;
+    background: linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--brass-dim);
+    box-shadow: 0 4px 10px rgba(0,0,0,.25);
+  }
+  .casino-hub-bubble:active{ transform:scale(.96); }
+  .casino-hub-icon{ font-size:26px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+  .casino-hub-label{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--brass-light); }
+  .casino-hub-sub{ font-size:9.5px; color:var(--muted); text-align:center; line-height:1.3; }
+  .casino-hub-badge{
+    position:absolute; top:8px; right:8px; min-width:18px; height:18px; padding:0 5px;
+    border-radius:999px; background:var(--loss); color:#fff; font-size:10px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px rgba(193,96,74,.7);
+  }
+  .casino-view{ display:none; }
+  .casino-view.active{ display:block; }
+  #casinoRulesHubList, #xpInfoModalBody .xp-source-row{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:10px 4px; border-bottom:1px solid var(--line); font-size:12.5px;
+  }
+  #casinoRulesHubList button{
+    width:100%; text-align:left; background:var(--felt-2); border:1px solid var(--brass-dim); color:var(--chalk);
+    border-radius:10px; padding:12px 14px; margin-bottom:8px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  #casinoRulesHubList button:active{ border-color:var(--brass); }
+
+  /* ---- Head-to-head challenges ---- */
+  .challenge-row{
+    display:flex; flex-direction:column; gap:8px; padding:12px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .challenge-row:last-child{ border-bottom:none; }
+  .challenge-row-main{ font-size:12.5px; color:var(--chalk); display:flex; align-items:center; gap:8px; }
+  .challenge-row-main b{ color:var(--brass-light); }
+  .challenge-stake-chip{
+    display:inline-flex; align-items:center; gap:3px; padding:2px 9px; border-radius:999px;
+    background:rgba(203,177,102,.14); border:1px solid var(--brass-dim); color:var(--brass-light);
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; font-weight:700; white-space:nowrap; margin-left:auto;
+  }
+  .challenge-row-actions{ display:flex; gap:8px; }
+  .challenge-row-actions .pill-btn{ flex:1; text-align:center; justify-content:center; }
+  .challenge-result-chip{ font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:12px; }
+
+  /* ---- Hold'em table list + seat ring ---- */
+  .holdem-table-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 10px; border-bottom:1px solid var(--line);
+  }
+  .holdem-table-row:last-child{ border-bottom:none; }
+  .holdem-table-name{ font-weight:700; color:var(--brass-light); font-size:13px; }
+  .holdem-table-meta{ font-size:11px; color:var(--muted); margin-top:2px; }
+
+  /* Real radial table — seats positioned around an oval by computed
+     angle, not a flat grid. padding-bottom maintains the oval's aspect
+     ratio responsively (a well-known CSS trick — percentage padding is
+     relative to WIDTH even on padding-bottom, which is what lets this
+     scale cleanly instead of needing a fixed pixel height). */
+  .holdem-table-oval{ position:relative; width:100%; padding-bottom:82%; margin:38px 0 14px; }
+  .holdem-table-oval::before{
+    content:''; position:absolute; inset:6%; border-radius:50%;
+    /* Velvet, not flat felt: a soft off-center sheen (light catching
+       raised nap at an angle, the way real velvet never reflects evenly)
+       layered over the same base green, plus a tighter inner vignette
+       for real depth instead of one flat radial fade. */
+    background:
+      radial-gradient(ellipse at 32% 22%, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 38%),
+      radial-gradient(ellipse at 68% 30%, rgba(255,255,255,.03) 0%, rgba(255,255,255,0) 30%),
+      radial-gradient(ellipse at 50% 35%, #124631 0%, #0A2A1E 60%, #071c14 100%);
+    border:1px solid var(--brass-dim);
+    box-shadow: inset 0 0 40px rgba(0,0,0,.55), inset 0 0 90px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.3);
+  }
+  /* The MLSynd mark, embedded into the felt itself — not a sticker on
+     top, an imprint IN the fabric. Low opacity + soft-light blending
+     (rather than a flat overlay) is what makes it read as woven into
+     the velvet instead of pasted over it — same reasoning that made the
+     Syndy coin watermark work: subtle enough to never compete with the
+     seats or cards sitting on top. */
+  .holdem-table-oval::after{
+    content:''; position:absolute; inset:6%; border-radius:50%; pointer-events:none;
+    background-image:url('/logo-icon.png');
+    /* Explicit width AND height (not a single percentage, which only
+       constrains width and lets height scale to the image's own native
+       aspect ratio) — the previous two attempts at this kept getting
+       clipped by the ellipse's curve because a single-percentage size
+       can't guarantee height stays small if the source logo turns out to
+       be taller than wide, which I have no way to inspect directly from
+       here. Capping both dimensions independently guarantees this never
+       exceeds a known-safe box regardless of the image's real
+       proportions — worth a marginal, imperceptible stretch at this
+       size/opacity in exchange for actually guaranteeing no more clipping. */
+    background-repeat:no-repeat; background-position:center center; background-size:15% 15%;
+    opacity:.10; mix-blend-mode:soft-light;
+  }
+  .holdem-seat{
+    position:absolute; width:26%; max-width:84px; transform:translate(-50%,-50%);
+    background:linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--line);
+    border-radius:12px; padding:8px 5px; text-align:center; min-height:64px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    box-shadow:0 4px 10px rgba(0,0,0,.35); z-index:1;
+  }
+  /* Same thin gold accent line used at the top of every panel throughout
+     the app (.panel::before) — scaled down and applied here too, so an
+     occupied seat reads as part of the same premium visual language
+     rather than a plainer, separate style. Only occupied seats get it —
+     empty seats don't render at all anymore, so there's nothing to apply
+     it to regardless. */
+  .holdem-seat.occupied::before{
+    content:''; position:absolute; top:0; left:8px; right:8px; height:2px; border-radius:2px;
+    background: linear-gradient(90deg, transparent, var(--brass) 50%, transparent);
+    opacity:.75; pointer-events:none;
+  }
+  .holdem-seat.occupied{ border-color:var(--brass-dim); }
+  .holdem-seat.me{ border-color:var(--brass); box-shadow:0 0 0 1px rgba(203,177,102,.3), 0 0 12px rgba(203,177,102,.25); }
+  .holdem-seat.button-seat{ position:absolute; }
+  .holdem-seat.button-seat::after{
+    content:'D'; position:absolute; top:4px; right:6px; width:16px; height:16px; border-radius:50%;
+    background:var(--brass); color:#0E1A16; font-size:9px; font-weight:800; display:flex; align-items:center; justify-content:center;
+  }
+  .holdem-seat-name{
+    font-size:10.5px; font-weight:700; color:var(--chalk); line-height:1.2;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }
+  .holdem-seat-stack{ font-family:'IBM Plex Mono', monospace; font-size:9.5px; color:var(--brass-light); display:inline-block; }
+  .holdem-seat-empty{ font-size:9.5px; color:var(--muted); }
+
+  /* The actual MLSYND CASINO watermark, now the felt's real centerpiece
+     instead of the blind info (which used to read as if IT were the
+     watermark, being the only prominent thing in the middle of an empty
+     table). Text-based, same gold-embossed treatment as the logo image
+     imprint above (::after) — soft-light blend + low opacity so it never
+     competes with seats or cards sitting on top of it. */
+  .holdem-table-wordmark{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    text-align:center; pointer-events:none; z-index:0; opacity:.16; mix-blend-mode:soft-light;
+    width:70%;
+  }
+  .holdem-table-wordmark span{
+    display:block; font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:15vw; max-font-size:64px;
+    letter-spacing:2px; color:var(--brass-light); line-height:1;
+  }
+  .holdem-table-wordmark small{
+    display:block; font-size:3.4vw; max-font-size:14px; letter-spacing:6px; color:var(--brass-light); margin-top:2px;
+  }
+  /* Blind info demoted to a small bubble under the watermark, per request
+     — still visible at a glance, no longer masquerading as the table's
+     main visual. */
+  .holdem-table-blind-bubble{
+    position:absolute; bottom:6%; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.32); border:1px solid var(--brass-dim); border-radius:999px;
+    padding:4px 12px; font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--brass-light);
+    display:flex; align-items:center; gap:6px; z-index:0; white-space:nowrap;
+  }
+  .holdem-table-blind-bubble-label{
+    font-family:'Barlow Condensed', sans-serif; font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--muted);
+  }
+  /* Big Win modal — visual of the hand (mini cards) or the winning
+     roulette pocket (a coloured number chip), shown only when the log
+     entry actually carries that detail (older/other-game entries just
+     don't render this row). */
+  .big-win-visual{ margin:10px 0; display:flex; align-items:center; justify-content:center; gap:14px; min-height:0; }
+  .session-recap-stats{ display:flex; gap:10px; justify-content:center; margin:14px 0 4px; }
+  .session-recap-stat{
+    background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:10px; padding:10px 16px; min-width:100px;
+  }
+  .session-recap-stat .lbl{ display:block; font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; }
+  .session-recap-stat .val{ font-family:'IBM Plex Mono', monospace; font-size:18px; font-weight:700; color:var(--brass-light); }
+  .big-win-visual:empty{ display:none; margin:0; }
+  .big-win-visual .holdem-result-cards{ gap:6px; }
+  .big-win-visual .holdem-result-cards .playing-card{ width:38px !important; height:54px !important; }
+  .big-win-visual .holdem-result-cards .pc-pip{ font-size:9px !important; }
+  .big-win-visual .holdem-result-cards .pc-suit-big{ font-size:15px !important; }
+  .big-win-visual-side{ display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .big-win-visual-side-label{ font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+  .big-win-roulette-chip{
+    width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:22px; color:#fff;
+    border:2px solid rgba(255,255,255,.35); box-shadow:0 4px 12px rgba(0,0,0,.4);
+  }
+  .big-win-roulette-chip.bw-red{ background:#8c2a22; }
+  .big-win-roulette-chip.bw-black{ background:#141414; }
+  .big-win-roulette-chip.bw-green{ background:#1f7a4a; }
+
+  /* All 5 board cards fit on one row, never wrapping — smaller cards
+     and a tighter gap SPECIFICALLY for the board (not touched anywhere
+     else, so Blackjack's cards stay exactly as they are). 5 real
+     Hold'em cards, always exactly 5 max, never more — a fixed nowrap
+     row makes sense here in a way it wouldn't for a hand that could
+     grow past 5. */
+  .holdem-board-row{ flex-wrap:nowrap !important; gap:6px !important; }
+  .holdem-board-row .playing-card, .holdem-board-row .pc-flip-wrap{ width:44px !important; height:63px !important; }
+  .holdem-board-row .pc-pip{ font-size:9px !important; }
+  .holdem-board-row .pc-suit-big{ font-size:17px !important; }
+  .holdem-seat.sitting-out{ opacity:.5; }
+  .holdem-seat-sitout-tag{ font-size:8px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+
+  /* Showdown result banner — a distinct celebratory container instead of
+     plain text, plus tiny hole-card icons per winner so the hand is shown,
+     not just named. Sized down the same way the board row is above. */
+  .holdem-result-banner{ background:linear-gradient(180deg, rgba(232,161,92,.14), rgba(232,161,92,.03)); border:1px solid var(--brass); border-radius:12px; padding:12px 14px; margin-bottom:10px; animation: holdemResultIn .35s cubic-bezier(.22,.9,.32,1.15) both; }
+  .holdem-result-banner.holdem-result-win{ border-color:#7FD98A; background:linear-gradient(180deg, rgba(127,217,138,.16), rgba(127,217,138,.03)); box-shadow:0 0 18px rgba(127,217,138,.25); }
+  .holdem-result-title{ font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--brass-light); margin-bottom:6px; }
+  .holdem-result-win .holdem-result-title{ color:#7FD98A; }
+  .holdem-result-pot-row{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:5px 0; }
+  .holdem-result-pot-row + .holdem-result-pot-row{ border-top:1px dashed rgba(212,175,120,.2); }
+  .holdem-result-pot-text{ font-size:13px; }
+  .holdem-result-pot-text b{ color:var(--brass-light); }
+  .holdem-result-cards{ display:flex; gap:4px; flex-wrap:nowrap; }
+  .holdem-result-cards .playing-card, .holdem-result-cards .pc-flip-wrap{ width:30px !important; height:43px !important; }
+  .holdem-result-cards .pc-pip{ font-size:7px !important; top:2px !important; left:2px !important; }
+  .holdem-result-cards .pc-pip-br{ bottom:2px !important; right:2px !important; }
+  .holdem-result-cards .pc-suit-big{ font-size:12px !important; }
+  @keyframes holdemResultIn{ from{ opacity:0; transform:translateY(-6px) scale(.97);} to{ opacity:1; transform:translateY(0) scale(1);} }
+
+  /* A player sitting down — the seat itself settles in with a soft
+     scale+glow, not an instant pop, paired with the chip sound. */
+  @keyframes holdemSeatIn{
+    0%{ transform:translate(-50%,-50%) scale(.7); opacity:0; box-shadow:0 0 0 rgba(203,177,102,0); }
+    60%{ box-shadow:0 0 22px rgba(203,177,102,.6); }
+    100%{ transform:translate(-50%,-50%) scale(1); opacity:1; box-shadow:0 4px 10px rgba(0,0,0,.35); }
+  }
+  .holdem-seat.seat-glow-in{ animation: holdemSeatIn .5s cubic-bezier(.22,.9,.32,1.15) both; }
+  /* A stack changing (rebuy, or settling after a hand) — same pulse
+     language as the in-hand pot, so a stack update reads as "something
+     just happened" here too, not a silent number swap. */
+  .holdem-seat-stack.stack-pulse{ animation: holdemPotPulse .5s ease-out; }
+
+  /* ---- In-game chat — compact, never competes with cards/actions for
+     space. Same message list + input used on both the table view and
+     the live hand view, since both point at the same /holdemChat/{tableId}
+     thread. ---- */
+  .holdem-chat-box{ margin-top:14px; border-top:1px solid var(--line); padding-top:10px; }
+  .holdem-chat-label{
+    font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; letter-spacing:.8px;
+    text-transform:uppercase; color:var(--brass); margin-bottom:6px; display:flex; align-items:center; gap:5px;
+  }
+  .holdem-chat-messages{
+    max-height:150px; min-height:44px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;
+    margin-bottom:8px; padding:8px 9px; border-radius:10px;
+    background:rgba(0,0,0,.22); border:1px solid var(--line);
+    box-shadow: inset 0 1px 4px rgba(0,0,0,.35);
+  }
+  .holdem-chat-messages:empty::before{
+    content:'No messages yet — say hello.'; font-size:11.5px; color:var(--muted); font-style:italic;
+  }
+  .holdem-chat-msg{
+    font-size:11.5px; line-height:1.35; color:var(--chalk);
+    padding:5px 9px; border-radius:9px; background:rgba(255,255,255,.03);
+    border:1px solid rgba(212,175,120,.08); width:fit-content; max-width:92%;
+  }
+  .holdem-chat-msg.chat-msg-mine{ background:rgba(232,161,92,.12); border-color:rgba(232,161,92,.25); align-self:flex-end; }
+  @keyframes holdemChatIn{ 0%{ opacity:0; transform:translateY(4px); } 100%{ opacity:1; transform:translateY(0); } }
+  .holdem-chat-msg.chat-msg-in{ animation: holdemChatIn .28s ease-out both; }
+  .holdem-chat-msg b{ color:var(--brass-light); font-weight:700; }
+  .holdem-chat-input-row{ display:flex; gap:6px; align-items:center; }
+  .holdem-chat-input-row input{
+    flex:1; border-radius:999px !important; padding-left:14px !important;
+    transition: box-shadow .15s ease, border-color .15s ease;
+  }
+  .holdem-chat-input-row input:focus{ border-color:var(--brass) !important; box-shadow:0 0 0 2px rgba(203,177,102,.18); }
+  .holdem-chat-input-row .pill-btn{ flex-shrink:0; }
+  .holdem-chat-counter{ font-size:9.5px; color:var(--muted); text-align:right; margin-top:3px; }
+  .holdem-chat-counter.near-limit{ color:var(--loss); }
+
+  /* ---- In-hand seat status rows ---- */
+  .holdem-hand-seat{
+    display:flex; align-items:center; gap:8px; padding:8px 6px; border-bottom:1px solid var(--line);
+    font-size:12px;
+  }
+  .holdem-hand-seat:last-child{ border-bottom:none; }
+  .holdem-hand-seat.folded{ opacity:.4; }
+  .holdem-hand-seat.to-act{ background:rgba(203,177,102,.08); border-radius:8px; }
+  .holdem-hand-seat-name{ font-weight:700; color:var(--chalk); flex:1; }
+  .holdem-hand-seat.folded .holdem-hand-seat-name{ text-decoration:line-through; }
+  .holdem-hand-seat-committed{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--brass-light); }
+
+  /* Real chip-stack visual for a player's current bet — reuses the exact
+     same color tiers as .table-chip (the raise builder's chips) for
+     consistency, just flattened into thin stacked ellipses (how a chip
+     stack actually reads visually) rather than the flat circular "single
+     chip from above" look used for tapping/selecting. A small negative
+     margin + shadow gives it a "sitting in front of the seat" lift
+     instead of reading as flush inline text. */
+  .holdem-chip-badge{ display:inline-flex; align-items:center; gap:5px; margin-top:1px; }
+  .holdem-chip-stack-visual{ position:relative; width:18px; height:24px; flex-shrink:0; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+  .holdem-mini-chip{
+    position:absolute; left:0; width:18px; height:7px; border-radius:50%;
+    border:1.3px dashed rgba(255,255,255,.55);
+  }
+  .holdem-mini-chip.chip-10{ background: radial-gradient(circle at 35% 25%, #e8e8e8, #b8b8b8 60%, #888); }
+  .holdem-mini-chip.chip-25{ background: radial-gradient(circle at 35% 25%, #4fae74, #1f7a4a 60%, #145535); }
+  .holdem-mini-chip.chip-50{ background: radial-gradient(circle at 35% 25%, #5b9fd6, #2a6ca8 60%, #1a4a78); }
+  .holdem-mini-chip.chip-100{ background: radial-gradient(circle at 35% 25%, #2a2a2a, #0d0d0d 60%, #000); border-color:var(--brass-light); }
+
+  /* ---- Seat-ring secondary actions — side-by-side cards instead of
+     stacked full-width buttons, easier to hit accurately on mobile. ---- */
+  .holdem-action-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+  .holdem-action-card{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    padding:14px 8px; border-radius:14px; cursor:pointer; text-align:center; min-height:64px;
+    background:linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--brass-dim);
+    box-shadow:0 4px 10px rgba(0,0,0,.25); transition:transform .08s ease;
+  }
+  .holdem-action-card:active{ transform:scale(.96); }
+  .holdem-action-card-icon{ font-size:19px; line-height:1; }
+  .holdem-action-card-label{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:12.5px; color:var(--brass-light); text-transform:uppercase; letter-spacing:.4px; }
+  .holdem-action-card-sub{ font-size:10px; color:var(--muted); }
+  .holdem-action-card.full-width{ grid-column:1 / -1; flex-direction:row; gap:8px; min-height:0; padding:14px; }
+  .holdem-action-card.primary{ background:linear-gradient(165deg, var(--brass-light), var(--brass)); border-color:var(--brass); }
+  .holdem-action-card.primary .holdem-action-card-label{ color:#0E1A16; }
+  .holdem-action-card.primary .holdem-action-card-sub{ color:rgba(14,26,22,.65); }
+
+  /* ---- Custom checkbox — replaces the bare native browser checkbox ---- */
+  .holdem-toggle-row{
+    display:flex; align-items:center; gap:10px; margin-top:6px; cursor:pointer;
+    padding:10px 12px; border-radius:12px; background:rgba(0,0,0,.15);
+  }
+  .holdem-toggle-row input[type="checkbox"]{ position:absolute; opacity:0; width:0; height:0; }
+  .holdem-toggle-box{
+    width:23px; height:23px; border-radius:7px; border:1.5px solid var(--brass-dim); background:var(--felt);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .15s ease; position:relative;
+  }
+  .holdem-toggle-row input:checked + .holdem-toggle-box{
+    background:linear-gradient(165deg, var(--brass-light), var(--brass)); border-color:var(--brass);
+    box-shadow:0 0 10px rgba(203,177,102,.55);
+  }
+  .holdem-toggle-box::after{
+    content:'✓'; color:#0E1A16; font-size:15px; font-weight:800; line-height:1;
+    opacity:0; transform:scale(.4); transition:all .15s cubic-bezier(.34,1.56,.64,1);
+  }
+  .holdem-toggle-row input:checked + .holdem-toggle-box::after{ opacity:1; transform:scale(1); }
+  .holdem-toggle-label{ font-size:12px; color:var(--chalk); line-height:1.3; }
+
+  /* ---- In-hand action buttons — elevated, tactile, uniform ---- */
+  .holdem-action-btn{
+    flex:1; padding:16px 10px; border-radius:14px; font-family:'Barlow Condensed', sans-serif;
+    font-size:15px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
+    background:linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1.5px solid var(--brass-dim);
+    color:var(--chalk); box-shadow:0 4px 10px rgba(0,0,0,.3); transition:transform .08s ease;
+  }
+  .holdem-action-btn:active{ transform:scale(.95); }
+  .holdem-hand-seat-tag{
+    font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; padding:2px 6px;
+    border-radius:999px; background:var(--brass-dim); color:var(--ink);
+  }
+  .holdem-mini-cards{ display:flex; gap:2px; }
+  .holdem-mini-card{ width:16px; height:22px; border-radius:2px; background:repeating-linear-gradient(45deg, var(--brass-dim), var(--brass-dim) 2px, var(--felt-3) 2px, var(--felt-3) 4px); border:1px solid var(--brass); }
+
+  /* Pot ticks up in size + gold flash whenever it grows — paired with
+     bjPlayChipSound() in JS, so a bet/call/raise actually registers as an
+     event instead of the number just silently changing between polls. */
+  @keyframes holdemPotPulse{
+    0%{ transform:scale(1); color:var(--brass-light); }
+    35%{ transform:scale(1.12); color:#fff6de; text-shadow:0 0 10px rgba(255,224,150,.7); }
+    100%{ transform:scale(1); color:var(--brass-light); }
+  }
+  .holdem-pot-pulse{ animation: holdemPotPulse .5s ease-out; display:inline-block; }
+
+  /* The seat whose turn it is right now — same pulsing-dot language as
+     the Casino activity ticker's live indicator, so "your move" reads
+     immediately rather than needing to actually read the row. */
+  .holdem-hand-seat.to-act{ position:relative; }
+  .holdem-hand-seat.to-act::before{
+    content:''; position:absolute; left:-2px; top:8px; bottom:8px; width:3px; border-radius:3px;
+    background:var(--brass-light); box-shadow:0 0 8px rgba(245,232,168,.8);
+    animation: tickerPulse 1.3s ease-in-out infinite;
+  }
+
+  /* New Challenge form — a proper premium card, not a plain grey box, with
+     custom-styled select/input/buttons matching the rest of the app
+     instead of falling back to raw browser form-control chrome. */
+  #newChallengeForm{
+    background:linear-gradient(165deg, var(--felt-3), var(--felt)); border:1px solid var(--brass-dim);
+    border-radius:14px; padding:16px 14px; box-shadow:inset 0 0 20px rgba(0,0,0,.3), 0 8px 18px rgba(0,0,0,.3);
+    position:relative; overflow:hidden;
+  }
+  #newChallengeForm::before{
+    content:''; position:absolute; top:0; left:14px; right:14px; height:2px; border-radius:2px;
+    background: linear-gradient(90deg, transparent, var(--brass) 50%, transparent); opacity:.7;
+  }
+  .form-field-label{
+    font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; letter-spacing:1px;
+    text-transform:uppercase; color:var(--brass); display:block; margin-bottom:6px;
+  }
+  .form-select, .form-input{
+    width:100%; background:var(--ink); color:var(--chalk); border:1px solid var(--line);
+    border-radius:9px; padding:11px 12px; font-family:'IBM Plex Sans', sans-serif; font-size:13.5px;
+    margin-bottom:14px; appearance:none; -webkit-appearance:none;
+  }
+  .form-select{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23CBB166'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 14px center; padding-right:32px;
+  }
+  .form-select:focus, .form-input:focus{ outline:none; border-color:var(--brass); box-shadow:0 0 0 2px rgba(203,177,102,.2); }
+  .form-input::placeholder{ color:var(--muted); }
+
+  /* ---- Casino badges ---- */
+  .casino-badge-row{
+    display:flex; align-items:center; gap:12px; padding:12px 6px;
+    border-bottom:1px solid var(--line); transition: opacity .2s ease;
+  }
+  .casino-badge-row.locked{ opacity:.4; }
+  .casino-badge-icon{
+    font-size:28px; width:42px; height:42px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    border-radius:50%; background:radial-gradient(circle at 35% 30%, var(--felt-3), var(--ink));
+    box-shadow: inset 0 0 0 1px rgba(255,214,120,.25);
+  }
+  .casino-badge-row.unlocked .casino-badge-icon{
+    background: radial-gradient(circle at 32% 26%, #fff6de, var(--brass-light) 35%, var(--brass) 65%, var(--brass-dim) 100%);
+    box-shadow:0 0 14px rgba(255,214,120,.5), inset 0 2px 3px rgba(255,255,255,.6);
+  }
+  .casino-badge-info{ flex:1; min-width:0; }
+  .casino-badge-name{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase; color:var(--chalk); }
+  .casino-badge-row.unlocked .casino-badge-name{ color:var(--brass-light); }
+  .casino-badge-desc{ font-size:11px; color:var(--muted); margin-top:2px; }
+  .casino-badge-status{ font-size:17px; flex-shrink:0; }
+
+  /* ---- Slots machine — restored original polished implementation
+     (recovered from an earlier build), replacing a differently-designed
+     cabinet — same premium bezel language as the other wheels, just
+     applied to a rectangular reel window instead of a circle. ---- */
+  .slots-machine{
+    display:inline-block; padding:14px; border-radius:16px; margin:6px auto;
+    background: linear-gradient(160deg, #d4af5a, #8a6620 40%, #6b4f1a 70%, #d4af5a);
+    box-shadow: 0 8px 20px rgba(0,0,0,.55), inset 0 3px 5px rgba(255,255,255,.4), inset 0 -4px 8px rgba(0,0,0,.5);
+  }
+  .slots-reel-window{
+    position:relative; display:flex; gap:5px; padding:9px; border-radius:8px;
+    background:#0a1a12; box-shadow: inset 0 0 20px rgba(0,0,0,.8), inset 0 3px 6px rgba(0,0,0,.6);
+  }
+  .slots-reel{
+    width:52px; height:66px; overflow:hidden; border-radius:5px; position:relative;
+    background: linear-gradient(180deg, #0d2318, #163826 50%, #0d2318);
+    box-shadow: inset 0 0 10px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,214,120,.2);
+  }
+  .slots-symbol-strip{ position:absolute; left:0; top:0; width:100%; display:flex; flex-direction:column; align-items:center; }
+  .slots-symbol{ width:52px; height:66px; display:flex; align-items:center; justify-content:center; font-size:27px; flex-shrink:0; }
+  .slots-payline{
+    position:absolute; left:8px; right:8px; top:50%; height:2px; margin-top:-1px;
+    background: linear-gradient(90deg, transparent, var(--brass-light), transparent); z-index:2; pointer-events:none;
+    box-shadow:0 0 6px rgba(255,214,120,.7);
+  }
+  @keyframes slotsReelFlash{ 0%,100%{ box-shadow: inset 0 0 10px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,214,120,.2); } 50%{ box-shadow: inset 0 0 10px rgba(0,0,0,.7), inset 0 0 0 2px var(--brass-light), 0 0 14px rgba(255,214,120,.7); } }
+  .slots-reel.pc-reel-win{ animation: slotsReelFlash .45s ease 3; }
+  /* Paytable — a real ×3/×4/×5 column grid, symbol shown exactly once per
+     row, rather than repeating it 3/4/5 times per row (which wrapped onto
+     extra lines and looked cramped on a phone screen). */
+  .slots-paytable{
+    margin-top:16px; border-top:1px solid var(--line); padding-top:10px;
+    display:grid; grid-template-columns: 34px 1fr 1fr 1fr; column-gap:6px; row-gap:6px;
+    font-size:11px; color:var(--muted); align-items:center;
+  }
+  .slots-pt-header{ display:contents; }
+  .slots-pt-header > div{ font-size:9.5px; font-weight:700; text-align:center; color:var(--muted); letter-spacing:.5px; }
+  .slots-pt-row{ display:contents; }
+  .slots-pt-sym{ font-size:19px; text-align:center; }
+  .slots-pt-row .vp-pt-mult{ color:var(--brass); font-weight:700; font-family:'IBM Plex Mono',monospace; text-align:center; }
+  .slots-pt-consolation{
+    grid-column: 1 / 5; display:flex; justify-content:space-between; margin-top:6px; padding-top:8px;
+    border-top:1px dashed var(--line);
+  }
+  .slots-pt-consolation .vp-pt-mult{ color:var(--brass); font-weight:700; font-family:'IBM Plex Mono',monospace; }
+
+  /* ---- Video Poker ---- */
+  .vp-hand-row{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .vp-card-col{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .vp-hold-pill{
+    padding:5px 12px; font-size:10.5px; border-radius:999px; cursor:pointer;
+    background:var(--felt-2); border:1px solid var(--brass-dim); color:var(--muted); font-weight:700;
+  }
+  .vp-hold-pill.held{ background:linear-gradient(165deg, var(--brass-light), var(--brass)); border-color:var(--brass-light); color:#2a2005; box-shadow:0 0 12px rgba(255,214,120,.4); }
+  .vp-card-col .playing-card.pc-held-glow{ box-shadow:0 0 0 2px var(--brass-light), 0 4px 10px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.6); }
+  @keyframes vpHoldPop{ 0%{ transform:scale(1); } 45%{ transform:scale(1.08) translateY(-3px); } 100%{ transform:scale(1); } }
+  .vp-card-col .playing-card.pc-hold-pop{ animation: vpHoldPop .25s cubic-bezier(.34,1.6,.5,1); }
+  .vp-paytable{ width:100%; min-width:0; border-collapse:collapse; font-size:11px; margin-top:10px; }
+  .vp-paytable td{ padding:4px 6px; border-bottom:1px solid var(--line); }
+  .vp-paytable tr.vp-hit td{ color:var(--brass-light); font-weight:700; }
+
+  .roulette-wheel-wrap{
+    position:relative; width:250px; height:250px; margin:14px auto 10px;
+    filter: drop-shadow(0 12px 22px rgba(0,0,0,.65));
+  }
+  /* Metallic bezel ring — a spun-gold conic gradient standing in for a
+     beveled rim, plus a bright top-left highlight and dark bottom-right
+     shadow so it reads as a genuine curved metal surface, not a flat ring. */
+  .roulette-bezel-outer{
+    position:absolute; inset:-9px; border-radius:50%;
+    background:
+      radial-gradient(circle at 30% 22%, rgba(255,255,255,.55), rgba(255,255,255,0) 32%),
+      conic-gradient(from -40deg, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4);
+    box-shadow: 0 3px 10px rgba(0,0,0,.5), inset 0 3px 5px rgba(255,255,255,.5), inset 0 -4px 8px rgba(0,0,0,.55);
+  }
+  .roulette-wheel{
+    position:absolute; inset:0; border-radius:50%;
+    box-shadow: inset 0 0 28px rgba(0,0,0,.65), inset 0 0 0 3px rgba(0,0,0,.5), inset 0 2px 4px rgba(255,255,255,.08);
+  }
+  /* Thin bright separator line at every pocket boundary — this alone is
+     most of what made the earlier version read as "flat colour wedges"
+     rather than an actual wheel with individually walled pockets. */
+  .roulette-pocket-dividers{
+    position:absolute; inset:0; border-radius:50%; pointer-events:none;
+    background: repeating-conic-gradient(rgba(255,224,160,.4) 0deg 0.35deg, transparent 0.35deg 9.474deg);
+  }
+  /* A soft diagonal glass-dome sheen sitting above the pockets — the
+     single biggest thing that sells "premium lacquered wheel" over
+     "coloured circle". */
+  .roulette-glass-shine{
+    position:absolute; inset:0; border-radius:50%; pointer-events:none;
+    background: linear-gradient(125deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 30%, rgba(255,255,255,0) 68%, rgba(255,255,255,.1) 100%);
+  }
+  .roulette-pocket-label{
+    position:absolute; top:50%; left:50%; width:20px; height:14px; margin:-7px 0 0 -10px;
+    font-size:9px; font-weight:700; color:#F5EFDC; text-align:center; line-height:14px;
+    text-shadow:0 1px 2px rgba(0,0,0,.6);
+  }
+  .roulette-ball-track{ position:absolute; inset:0; pointer-events:none; z-index:3; }
+  .roulette-ball{
+    position:absolute; top:5px; left:50%; width:12px; height:12px; margin-left:-6px; border-radius:50%;
+    background: radial-gradient(circle at 30% 25%, #ffffff, #e2e2e2 45%, #a8a8a8 75%, #757575);
+    box-shadow:0 2px 5px rgba(0,0,0,.75), 0 0 3px rgba(255,255,255,.6), 0 1px 1px rgba(255,255,255,.5) inset;
+  }
+  .roulette-hub{
+    position:absolute; top:50%; left:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%;
+    background: radial-gradient(circle at 32% 26%, #fff6de, var(--brass-light) 35%, var(--brass) 65%, var(--brass-dim) 100%);
+    display:flex; align-items:center; justify-content:center; color:#2a2005; font-size:16px;
+    box-shadow:0 4px 10px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.35); z-index:4;
+  }
+  .roulette-pointer{
+    position:absolute; top:-15px; left:50%; margin-left:-9px; width:0; height:0; z-index:5;
+    border-left:9px solid transparent; border-right:9px solid transparent; border-top:17px solid var(--brass-light);
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
+  }
+  @keyframes roulettePocketFlash{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(2.1); } }
+  .roulette-wheel.pc-winner-flash{ animation: roulettePocketFlash .5s ease 3; }
+
+  /* ---- Tap-to-add chip rail (reused across every game's bet panel) ---- */
+  .chip-rail{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:12px; }
+  .chip-rail-small{ margin-top:8px; }
+  .table-chip{
+    width:44px; height:44px; border-radius:50%; font-weight:700; font-size:12px; font-family:'IBM Plex Mono',monospace;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; border:3px dashed rgba(255,255,255,.5);
+    box-shadow:0 3px 6px rgba(0,0,0,.5); transition: transform .12s cubic-bezier(.34,1.6,.6,1);
+    color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.5);
+  }
+  .table-chip:active{ transform:scale(.88); }
+  .table-chip.chip-5{ background: radial-gradient(circle at 35% 30%, #f0dfc0, #d9b877 60%, #a5843f); color:#2a2005; text-shadow:none; }
+  .table-chip.chip-10{ background: radial-gradient(circle at 35% 30%, #e8e8e8, #b8b8b8 60%, #888); color:#222; text-shadow:none; }
+  .table-chip.chip-25{ background: radial-gradient(circle at 35% 30%, #4fae74, #1f7a4a 60%, #145535); }
+  .table-chip.chip-50{ background: radial-gradient(circle at 35% 30%, #5b9fd6, #2a6ca8 60%, #1a4a78); }
+  .table-chip.chip-100{ background: radial-gradient(circle at 35% 30%, #2a2a2a, #0d0d0d 60%, #000); border-color:var(--brass-light); }
+  .table-chip.chip-250{ background: radial-gradient(circle at 35% 30%, #b568d8, #7a2fa0 60%, #4f1c69); }
+  @keyframes chipTapPop{ 0%{ transform:scale(1); } 40%{ transform:scale(1.25) translateY(-4px); } 100%{ transform:scale(1); } }
+  .table-chip.pc-chip-tap{ animation: chipTapPop .3s cubic-bezier(.34,1.6,.5,1); }
+  /* Roulette's "select a denomination" chip tray — the currently-selected
+     chip stays visibly raised/lit until a different one is tapped. */
+  .table-chip.active-chip{
+    box-shadow: 0 0 0 3px var(--brass-light), 0 5px 12px rgba(0,0,0,.55), 0 0 14px rgba(255,214,120,.5);
+    transform: translateY(-3px) scale(1.06);
+  }
+  /* Clear-chips control: a labelled pill (not a bare red circle+✕) so its
+     purpose reads at a glance and it matches every other control's language. */
+  .chip-clear-btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:4px;
+    height:44px; padding:0 16px; border-radius:999px; white-space:nowrap;
+    background:rgba(193,96,74,.14); border:1px solid var(--loss); color:var(--loss);
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:13px; letter-spacing:.6px; text-transform:uppercase;
+    cursor:pointer;
+  }
+  .chip-clear-btn:active{ transform:scale(.92); border-color:#e07a60; background:rgba(193,96,74,.24); }
+
+  /* ---- Shared "deal row" — primary action + any pill toggles beside it ---- */
+  .deal-row{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
+  .pill-btn-primary{
+    background:var(--brass); color:var(--ink); font-weight:700; padding:13px 30px;
+    font-family:'Barlow Condensed', sans-serif; font-size:16px; letter-spacing:.8px; text-transform:uppercase;
+  }
+  .pill-btn-primary:disabled{ opacity:.45; cursor:default; background:var(--brass-dim); }
+  .pill-btn-action{
+    padding:10px 18px; font-family:'Barlow Condensed', sans-serif; font-size:13px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+  }
+  .pill-btn-action:disabled{ opacity:.45; cursor:default; border-style:dashed; }
+  .pill-btn-action:disabled::after{ display:none; }
+
+  /* Perfect Pairs / side-bet toggle pill (replaces the old checkbox+label row) */
+  .pp-toggle-pill{
+    padding:10px 18px; font-family:'Barlow Condensed', sans-serif; font-size:13px; letter-spacing:.6px; text-transform:uppercase; font-weight:700;
+  }
+  .pp-toggle-pill.active{
+    background:linear-gradient(165deg, var(--brass-light), var(--brass));
+    border-color:var(--brass-light); color:#2a2005;
+    box-shadow:0 0 14px rgba(255,214,120,.4);
+  }
+
+  .bet-spot-row{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .bet-spot-btn{
+    background:var(--felt-2); border:2px solid var(--brass-dim); border-radius:10px; color:var(--chalk);
+    padding:10px 16px; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px; cursor:pointer;
+    transition: all .15s ease; line-height:1.3;
+  }
+  .bet-spot-btn small{ font-weight:500; color:var(--muted); font-size:10px; }
+  .bet-spot-btn.active{ background:var(--brass-dim); border-color:var(--brass); color:var(--ink); box-shadow:0 0 14px rgba(255,214,120,.5); }
+  .bet-spot-btn.active small{ color:#3a2e08; }
+
+  /* ---- Craps ---- */
+  /* A proper felt "table" surface for the puck/dice header — matching
+     Roulette's velvet treatment (radial sheen + vignette) and brass rail
+     rather than sitting in a plain flat panel. */
+  /* Generic brass rail bezel — the thicker metallic ring Roulette/Craps/
+     Hold'em all have, wrapped around a .bj-table felt. Blackjack, Baccarat,
+     Casino War, and Video Poker were still on the older thin 1px outline;
+     wrapping their existing .bj-table in this brings them up to the same
+     tier without touching the felt/card rendering inside at all. */
+  .pc-table-rail{
+    position:relative; border-radius:19px; padding:3px;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,.5), rgba(255,255,255,0) 32%),
+      conic-gradient(from -40deg, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4);
+    box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 2px 4px rgba(255,255,255,.45), inset 0 -3px 6px rgba(0,0,0,.5);
+    margin-bottom:14px; filter: drop-shadow(0 10px 18px rgba(0,0,0,.45));
+  }
+  .pc-table-rail .bj-table{ margin:0; border-radius:16px; }
+  /* Own ::after (not a .panel, so the generic .panel.pc-flash-gold rule
+     doesn't reach it) — same purpose as Craps' identical rule. */
+  .pc-table-rail::after{ content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:2; }
+  .pc-table-rail.pc-flash-gold::after{ animation: tableFlashGold .6s ease; }
+  .pc-table-rail.pc-flash-red::after{ animation: tableFlashRed .5s ease; }
+  .craps-table-rail{
+    position:relative; border-radius:22px; padding:3px;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,.5), rgba(255,255,255,0) 32%),
+      conic-gradient(from -40deg, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4, #b9903c, #6b4f1a, #b9903c, #f7e2a4);
+    box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 2px 4px rgba(255,255,255,.45), inset 0 -3px 6px rgba(0,0,0,.5);
+  }
+  /* Own ::after (not a .panel, so the generic .panel.pc-flash-gold rule
+     doesn't reach it) — used for the "Clear New Bets" confirmation flash. */
+  .craps-table-rail::after{ content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:2; }
+  .craps-table-rail.pc-flash-gold::after{ animation: tableFlashGold .6s ease; }
+  .craps-table-felt{
+    position:relative; border-radius:19px; overflow:hidden; padding:18px 12px 14px;
+    background:
+      radial-gradient(ellipse at 32% 14%, rgba(255,255,255,.08) 0%, rgba(255,255,255,0) 40%),
+      radial-gradient(ellipse at 50% 30%, #124631 0%, #0A2A1E 55%, #071c14 100%);
+    box-shadow: inset 0 0 36px rgba(0,0,0,.6), inset 0 0 80px rgba(0,0,0,.3);
+  }
+  /* MLSYND wordmark imprinted into the felt, same soft-light treatment as
+     the Hold'em table — this table gets the same high-roller identity. */
+  .craps-table-wordmark{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    text-align:center; pointer-events:none; z-index:0; opacity:.14; mix-blend-mode:soft-light; width:80%;
+  }
+  .craps-table-wordmark span{
+    display:block; font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:13vw;
+    letter-spacing:2px; color:var(--brass-light); line-height:1;
+  }
+  .craps-table-wordmark small{
+    display:block; font-size:3vw; letter-spacing:5px; color:var(--brass-light); margin-top:2px;
+  }
+  .craps-table-felt > *{ position:relative; z-index:1; }
+  .craps-puck-row{ display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:12px; }
+  .craps-puck{
+    width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:13px; letter-spacing:.5px;
+    border:2px solid; transition: all .2s ease;
+  }
+  .craps-puck.off{ background:rgba(0,0,0,.35); border-color:var(--muted); color:var(--muted); box-shadow:inset 0 2px 4px rgba(0,0,0,.5); }
+  .craps-puck.on{
+    background: radial-gradient(circle at 32% 26%, #fff6de, var(--brass-light) 35%, var(--brass) 65%, var(--brass-dim) 100%);
+    border-color:var(--brass-light); color:#2a2005;
+    box-shadow:0 4px 10px rgba(0,0,0,.5), inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.3), 0 0 14px rgba(255,214,120,.5);
+  }
+  .craps-dice-row{ display:flex; gap:22px; justify-content:center; margin-bottom:12px; perspective:700px; }
+  /* Real dice: an ivory-bone gradient body (same family as the roulette
+     ball's material), a beveled edge via layered inset shadows, a soft
+     ambient shadow pooling underneath so it reads as sitting ON the felt
+     rather than pasted flat onto it. .craps-die is also reused flat (no
+     cube inside) for the small Big Win modal dice — the grid/pip rules
+     below apply directly to IT in that case, and are overridden by the
+     face-specific rules further down when a real .craps-die-cube is
+     nested inside for the live table dice. */
+  .craps-die{
+    width:52px; height:52px; border-radius:9px; position:relative;
+    background: radial-gradient(circle at 30% 24%, #ffffff, #f2ede2 45%, #d8d0bd 85%);
+    box-shadow:
+      0 10px 14px rgba(0,0,0,.5),
+      0 2px 3px rgba(0,0,0,.35),
+      inset 0 2px 2px rgba(255,255,255,.9),
+      inset 0 -4px 6px rgba(0,0,0,.18),
+      inset 3px 0 4px rgba(255,255,255,.35),
+      inset -3px 0 5px rgba(0,0,0,.12);
+    display:grid; grid-template-columns:repeat(3, 1fr); grid-template-rows:repeat(3, 1fr);
+    padding:8px; gap:2px;
+  }
+  /* Carved-in pip look: a dark dished centre with a tiny bright rim catch,
+     rather than a flat solid dot. */
+  .craps-die-pip{ width:100%; height:100%; border-radius:50%; }
+  .craps-die-pip.on{
+    background: radial-gradient(circle at 35% 30%, #3a3a3a, #111 55%, #000 100%);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.4);
+  }
+  /* ---- Real 3D cube (the live table dice only) ----
+     .craps-die (52x52, no grid/padding needed here — it becomes just a
+     perspective anchor) holds a .craps-die-cube with 6 actual faces
+     positioned in true 3D via translateZ, so side/top/bottom faces are
+     genuinely visible mid-tumble instead of a flat card flipping. Only
+     the FRONT face's pip content is ever authoritative (updated to the
+     real rolled value); the other 5 faces carry fixed decorative pip
+     counts purely so the cube reads as solid while spinning — nobody
+     freeze-frames a fast tumble to check that opposite faces sum to 7. */
+  .craps-die:has(.craps-die-cube), .craps-die.craps-die-3d{ background:none; box-shadow:none; display:block; padding:0; }
+  .craps-die-cube{
+    position:absolute; inset:0; transform-style:preserve-3d; will-change:transform;
+  }
+  .craps-die-face{
+    position:absolute; inset:0; border-radius:9px; backface-visibility:hidden;
+    background: radial-gradient(circle at 30% 24%, #ffffff, #f2ede2 45%, #d8d0bd 85%);
+    box-shadow:
+      inset 0 2px 2px rgba(255,255,255,.9), inset 0 -4px 6px rgba(0,0,0,.18),
+      inset 3px 0 4px rgba(255,255,255,.35), inset -3px 0 5px rgba(0,0,0,.12),
+      0 0 0 1px rgba(0,0,0,.06);
+    display:grid; grid-template-columns:repeat(3, 1fr); grid-template-rows:repeat(3, 1fr);
+    padding:8px; gap:2px;
+  }
+  .craps-die-face-front{ transform: translateZ(26px); }
+  .craps-die-face-back{ transform: rotateY(180deg) translateZ(26px); }
+  .craps-die-face-right{ transform: rotateY(90deg) translateZ(26px); }
+  .craps-die-face-left{ transform: rotateY(-90deg) translateZ(26px); }
+  .craps-die-face-top{ transform: rotateX(90deg) translateZ(26px); }
+  .craps-die-face-bottom{ transform: rotateX(-90deg) translateZ(26px); }
+  /* Tumble: a genuine toss-and-settle on a REAL cube — rotates on two
+     axes with a bounce arc (translateY dips like gravity, not just a
+     flat spin) and eases into a settle at the end. Critically, the FINAL
+     frame lands on exact multiples of 360° on every axis, so the cube
+     visually returns to true identity orientation (front face square-on
+     to the viewer) rather than resting at some arbitrary skewed angle —
+     the earlier flat-pip version got away with non-360 end values since
+     there was no real geometry to betray it; a genuine cube can't. */
+  @keyframes crapsDieTumble{
+    0%{ transform:translateY(0) rotateX(0) rotateY(0) rotateZ(0) scale(1); }
+    12%{ transform:translateY(-24px) rotateX(150deg) rotateY(90deg) rotateZ(40deg) scale(1.06); }
+    28%{ transform:translateY(-6px) rotateX(320deg) rotateY(240deg) rotateZ(140deg) scale(1); }
+    44%{ transform:translateY(-18px) rotateX(500deg) rotateY(380deg) rotateZ(220deg) scale(1.05); }
+    60%{ transform:translateY(-2px) rotateX(620deg) rotateY(520deg) rotateZ(300deg) scale(1); }
+    76%{ transform:translateY(-9px) rotateX(680deg) rotateY(620deg) rotateZ(340deg) scale(1.02); }
+    90%{ transform:translateY(0) rotateX(710deg) rotateY(690deg) rotateZ(355deg) scale(1); }
+    100%{ transform:translateY(0) rotateX(720deg) rotateY(720deg) rotateZ(360deg) scale(1); }
+  }
+  .craps-die-cube.tumbling{ animation: crapsDieTumble 2.1s cubic-bezier(.24,.85,.35,1) both; }
+  #crapsDie2 .craps-die-cube.tumbling{ animation-duration:2.22s; animation-delay:.1s; }
+  .craps-dice-shadow{ display:flex; gap:22px; justify-content:center; margin-top:-6px; margin-bottom:2px; }
+  .craps-dice-shadow-blob{
+    width:38px; height:8px; border-radius:50%; background:radial-gradient(ellipse, rgba(0,0,0,.45), rgba(0,0,0,0) 72%);
+  }
+  .craps-total-msg{ text-align:center; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:16px; min-height:22px; margin-bottom:4px; }
+  .craps-bet-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+  .craps-bet-spot{
+    position:relative; background:var(--felt-2); border:2px solid var(--brass-dim); border-radius:10px;
+    padding:10px 8px; text-align:center; cursor:pointer; transition: all .15s ease;
+  }
+  .craps-bet-spot.full-row{ grid-column:1 / -1; }
+  .craps-bet-spot:active{ transform:scale(.97); }
+  .craps-bet-spot.disabled{ opacity:.35; pointer-events:none; }
+  .craps-bet-spot-label{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:13px; color:var(--brass-light); }
+  .craps-bet-spot-sub{ font-size:9.5px; color:var(--muted); margin-top:1px; }
+  .craps-bet-spot-amt{
+    margin-top:5px; min-height:20px; display:flex; gap:4px; justify-content:center; align-items:center; flex-wrap:wrap;
+  }
+  /* Chip-pill tokens — a solid gold coin for an already-riding bet, a
+     dashed "ghost" coin for chips staged this round but not yet rolled.
+     Replaces the old plain "100 XP new" text line the amounts used to
+     show. The ghost pill doubles as a tap target to remove just that
+     one staged bet (delegated click handler further down). */
+  .craps-chip-pill{
+    display:inline-flex; align-items:center; justify-content:center; gap:2px;
+    min-width:28px; height:19px; padding:0 7px; border-radius:999px;
+    font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:700; line-height:1;
+    box-shadow:0 2px 4px rgba(0,0,0,.4);
+  }
+  .craps-chip-pill.craps-chip-live{
+    background: radial-gradient(circle at 32% 28%, var(--brass-light), var(--brass) 60%, var(--brass-dim) 100%);
+    color:#2a2005; box-shadow:0 2px 4px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.55);
+  }
+  .craps-chip-pill.craps-chip-new{
+    background:rgba(0,0,0,.25); border:1.5px dashed var(--brass-light); color:var(--brass-light);
+    cursor:pointer; box-shadow:none;
+  }
+  .craps-chip-pill.craps-chip-new:active{ transform:scale(.92); background:rgba(193,96,74,.25); border-color:var(--loss); }
+  .craps-bet-spot.has-live::before{
+    content:''; position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%;
+    background:var(--brass-light); box-shadow:0 0 6px rgba(255,214,120,.7);
+  }
+  .craps-live-summary{ font-size:11px; color:var(--muted); text-align:center; margin-bottom:8px; min-height:14px; }
+  .craps-history{ display:flex; gap:5px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+  .craps-history-chip{
+    width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:9px; font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.5); flex-shrink:0;
+  }
+  .craps-section-label{
+    font-family:'Barlow Condensed', sans-serif; font-size:11px; font-weight:700; letter-spacing:.8px;
+    text-transform:uppercase; color:var(--brass); margin:14px 0 6px; text-align:center;
+  }
+  .craps-section-label small{ text-transform:none; letter-spacing:0; font-weight:500; color:var(--muted); font-size:10px; }
+  /* Take Down / Let It Ride / Press — a real table lets you leave a
+     winning Place/Hardway bet working instead of it auto-clearing, or
+     "press" (add the win straight onto the bet, growing it) instead of
+     collecting. One shared mode applies to every Place/Hardway spot —
+     switch it anytime, it only affects wins from here on. */
+  .craps-winmode-row{ display:flex; gap:6px; justify-content:center; margin-bottom:4px; }
+  /* Diagnostics' Pulse/Money/Play submodes — same show-one-hide-rest
+     pattern as .tab-panel/.casino-game-panel, just scoped inside one tab
+     instead of switching the whole screen. */
+  .diag-submode{ display:none; }
+  .diag-submode.active{ display:block; }
+  .craps-winmode-btn{
+    flex:1; max-width:120px; padding:7px 4px; border-radius:999px; cursor:pointer;
+    background:rgba(0,0,0,.22); border:1px solid var(--brass-dim); color:var(--muted);
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:11px; letter-spacing:.3px;
+    transition: all .15s ease;
+  }
+  .craps-winmode-btn.active{
+    background: linear-gradient(165deg, var(--brass-light), var(--brass)); color:#2a2005; border-color:var(--brass-light);
+    box-shadow:0 0 10px rgba(255,214,120,.4);
+  }
+  /* Place bets — classic rounded number pucks laid out like a real table's
+     place-bet boxes, gold-embossed when live so a working bet reads at a
+     glance without needing to check the amount text. */
+  .craps-place-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:7px; }
+  .craps-place-spot{
+    position:relative; background:radial-gradient(circle at 35% 30%, var(--felt-2), var(--felt-3) 70%);
+    border:2px solid var(--brass-dim); border-radius:50%; aspect-ratio:1; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; cursor:pointer; transition: all .15s ease; padding:4px;
+  }
+  .craps-place-spot:active{ transform:scale(.95); }
+  .craps-place-num{ font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:22px; color:var(--brass-light); line-height:1; }
+  .craps-place-odds{ font-size:8.5px; color:var(--muted); margin-top:1px; }
+  .craps-place-spot.has-live{ border-color:var(--brass-light); box-shadow:0 0 14px rgba(255,214,120,.4); background:radial-gradient(circle at 35% 30%, var(--brass-dim), var(--felt-3) 75%); }
+  .craps-place-spot.has-live .craps-place-num{ color:#2a2005; }
+  .craps-place-spot .craps-bet-spot-amt{ font-size:9px; margin-top:1px; }
+  /* Shared small numbered-spot tile — used by Big Wheel's bet grid.
+     auto-fill rather than a fixed column count so it lays out sensibly
+     regardless of screen width instead of guessing a column count. */
+  .casino-num-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(56px, 1fr)); gap:6px; margin-bottom:4px;
+  }
+  .casino-num-spot{
+    position:relative; background:var(--felt-2); border:2px solid var(--brass-dim); border-radius:9px;
+    padding:7px 4px; text-align:center; cursor:pointer; transition: all .15s ease;
+  }
+  .casino-num-spot:active{ transform:scale(.94); }
+  .casino-num-spot-value{ font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:17px; color:var(--brass-light); line-height:1; }
+  .casino-num-spot-odds{ font-size:8px; color:var(--muted); margin-top:1px; }
+  .casino-num-spot.has-live{ border-color:var(--brass-light); box-shadow:0 0 12px rgba(255,214,120,.4); background:var(--brass-dim); }
+  .casino-num-spot.has-live .casino-num-spot-value, .casino-num-spot.has-live .casino-num-spot-odds{ color:#2a2005; }
+  .casino-num-spot .craps-bet-spot-amt{ margin-top:3px; min-height:0; }
+  /* Hardways — diamond tiles, the traditional shape for this bet on a real
+     felt, with the dice-pair callout baked into the tile. */
+  .craps-hardway-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:7px; }
+  .craps-hardway-spot{
+    background:var(--felt-2); border:2px solid var(--brass-dim); border-radius:8px; transform:rotate(45deg);
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: all .15s ease;
+    margin:6px auto; width:78%;
+  }
+  .craps-hardway-spot > *{ transform:rotate(-45deg); }
+  .craps-hardway-spot:active{ transform:rotate(45deg) scale(.94); }
+  .craps-hardway-inner{ display:flex; flex-direction:column; align-items:center; gap:0; }
+  .craps-hardway-dice{ font-family:'IBM Plex Mono', monospace; font-size:9px; color:var(--muted); }
+  .craps-hardway-label{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:11px; color:var(--brass-light); line-height:1.1; }
+  .craps-hardway-odds{ font-size:8px; color:var(--muted); }
+  .craps-hardway-spot.has-live{ border-color:var(--brass-light); box-shadow:0 0 14px rgba(255,214,120,.4); background:var(--brass-dim); }
+  .craps-hardway-spot.has-live .craps-hardway-label, .craps-hardway-spot.has-live .craps-hardway-dice, .craps-hardway-spot.has-live .craps-hardway-odds{ color:#2a2005; }
+  .craps-hardway-spot .craps-bet-spot-amt{ font-size:8px; }
+  /* One-roll props — a tight strip of small chip-style spots, same visual
+     language as Roulette's outside-bet row. */
+  .craps-prop-row{ display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .craps-prop-spot{
+    background:var(--felt-2); border:2px solid var(--brass-dim); border-radius:8px; padding:7px 4px;
+    text-align:center; cursor:pointer; transition: all .15s ease;
+  }
+  .craps-prop-spot:active{ transform:scale(.95); }
+  .craps-prop-label{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:12px; color:var(--brass-light); }
+  .craps-prop-odds{ font-size:8.5px; color:var(--muted); margin-top:1px; }
+  .craps-prop-spot.has-live{ border-color:var(--brass-light); box-shadow:0 0 12px rgba(255,214,120,.35); background:var(--brass-dim); }
+  .craps-prop-spot.has-live .craps-prop-label, .craps-prop-spot.has-live .craps-prop-odds{ color:#2a2005; }
+  .craps-prop-spot .craps-bet-spot-amt{ font-size:8.5px; margin-top:1px; }
+  /* Boxed like the reference table's side propositions panel — its own
+     border and a distinct red "Any 7" banner across the top, the one bet
+     every real table always calls out on its own. */
+  .craps-props-box{
+    border:1px solid var(--brass-dim); border-radius:12px; padding:8px; background:rgba(0,0,0,.15);
+  }
+  .craps-prop-any7{
+    width:100%; margin-bottom:8px; background:linear-gradient(165deg, #7a2a20, #4a150f) !important;
+    border-color:#a8402f !important;
+  }
+  .craps-prop-any7 .craps-prop-label{ color:#ffb199; }
+  .craps-prop-any7 .craps-prop-odds{ color:#e8a58f; }
+  .craps-prop-any7.has-live{ background:var(--brass-dim) !important; border-color:var(--brass-light) !important; }
+  .craps-prop-any7.has-live .craps-prop-label, .craps-prop-any7.has-live .craps-prop-odds{ color:#2a2005; }
+
+  .hand-total-chip{
+    display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px; padding:0 5px;
+    border-radius:50%; background:var(--felt-3); border:1px solid var(--brass-dim); font-family:'IBM Plex Mono',monospace;
+    font-size:11px; font-weight:700; color:var(--brass); vertical-align:middle; transition: transform .2s cubic-bezier(.34,1.6,.5,1);
+  }
+  .hand-total-chip.pc-chip-tap{ animation: chipTapPop .3s cubic-bezier(.34,1.6,.5,1); }
+
+  /* ---- Table box — the felt-marked outline every hand sits inside, like
+     a real dealt-card position on a physical table, used across every
+     card game (Blackjack, Baccarat, Casino War). ---- */
+  .table-box{
+    position:relative; border:2px solid var(--brass-dim); border-radius:14px;
+    padding:18px 10px 12px; margin:0 4px;
+    background: radial-gradient(ellipse at 50% 0%, rgba(255,224,150,.05) 0%, rgba(0,0,0,.18) 75%);
+    box-shadow: inset 0 0 16px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.03);
+  }
+  .table-box::before{
+    content: attr(data-label); position:absolute; top:-11px; left:50%; transform:translateX(-50%);
+    background: var(--felt-2); border:1px solid var(--brass-dim); border-radius:6px; padding:2px 12px;
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:11px; letter-spacing:1.5px;
+    color:var(--brass-light); text-transform:uppercase; white-space:nowrap;
+  }
+  .table-box-chip{ position:absolute; top:8px; right:10px; }
+  .table-box.active-hand{ border-color:var(--brass); box-shadow:0 0 0 2px rgba(255,214,120,.35), inset 0 0 16px rgba(0,0,0,.35); }
+
+  /* ---- Roulette betting table — real grid lines like a felt layout ---- */
+  .roulette-table-grid{
+    background: linear-gradient(165deg, #0d3524, #0a2a1c); border:2px solid var(--brass-dim); border-radius:10px;
+    padding:2px; overflow:hidden;
+  }
+  .rt-row{ display:flex; }
+  .rt-zero-row .rt-cell{ font-size:13px; }
+  .rt-number-grid{ display:grid; grid-template-columns: repeat(3, 1fr); }
+  .rt-cell{
+    flex:1; display:flex; align-items:center; justify-content:center; border:1px solid rgba(203,177,102,.28);
+    color:#fff; font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:12px; padding:9px 2px;
+    cursor:pointer; position:relative; transition: filter .1s ease; user-select:none;
+  }
+  .rt-cell:active{ filter:brightness(1.3); }
+  .rt-cell.rt-red-num{ background:#7a231c; }
+  .rt-cell.rt-black-num{ background:#141414; }
+  .rt-cell.rt-green{ background:#1f7a4a; font-size:13px; }
+  .rt-cell.rt-outside{ background:rgba(255,255,255,.03); font-size:10.5px; letter-spacing:.5px; }
+  .rt-cell.rt-red-cell{ background:#5a1a15; }
+  .rt-cell.rt-black-cell{ background:#0d0d0d; }
+  .rt-cell.selected{ background:var(--brass) !important; color:#2a2005 !important; box-shadow:inset 0 0 0 2px var(--brass-light); }
+  .rt-cell .rt-chip-badge{
+    position:absolute; top:-8px; right:-6px; width:20px; height:20px; border-radius:50%;
+    background: radial-gradient(circle at 35% 30%, var(--brass-light), var(--brass) 60%, var(--brass-dim));
+    color:#2a2005; font-size:8.5px; display:flex; align-items:center; justify-content:center;
+    border:1.5px solid rgba(255,255,255,.6); box-shadow:0 2px 4px rgba(0,0,0,.5); z-index:2;
+  }
+  .roulette-selected-spot{ text-align:center; font-size:12px; color:var(--brass-light); margin-top:8px; font-weight:600; }
+  .roulette-active-bets{ display:flex; flex-direction:column; gap:4px; margin-top:10px; }
+  .roulette-active-bet-row{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    background:rgba(0,0,0,.18); border:1px solid var(--brass-dim); border-radius:8px; padding:6px 10px; font-size:11.5px;
+  }
+  .roulette-active-bet-row .rab-label{ color:var(--chalk); font-weight:600; }
+  .roulette-active-bet-row .rab-amount{ font-family:'IBM Plex Mono',monospace; color:var(--brass); font-weight:700; }
+  .roulette-active-bet-row .rab-remove{ color:var(--loss); cursor:pointer; font-weight:700; padding:0 2px; }
+  .roulette-total-staked{ text-align:center; font-size:11px; color:var(--muted); margin-top:6px; }
+  .rt-cell.building{ background:var(--brass-dim) !important; color:#2a2005 !important; box-shadow:inset 0 0 0 2px rgba(255,255,255,.4); }
+  .roulette-history{ display:flex; gap:5px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+  .roulette-history-chip{
+    width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:9px; font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.5); flex-shrink:0;
+  }
+
+  /* Loss/bust: the table itself takes a hit rather than just the text
+     changing colour — a short sharp shake plus a red flash reads as real
+     impact, matching the celebration weight on the win side. */
+  @keyframes tableShake{
+    0%,100%{ transform:translateX(0); }
+    20%{ transform:translateX(-7px) rotate(-.4deg); }
+    40%{ transform:translateX(6px) rotate(.3deg); }
+    60%{ transform:translateX(-4px); }
+    80%{ transform:translateX(3px); }
+  }
+  .bj-table.pc-shake, .pc-shake{ animation: tableShake .4s ease; }
+  /* ---- Mines — a real 5x5 grid, not another single-reveal game. Gold
+     "unrevealed" tiles pop to a glowing gem on safe, or a red bomb flash
+     on a mine, same material language (radial gradients, inset shadows)
+     as the chips/dice/roulette ball throughout the rest of the casino. */
+  .mines-status-row{ display:flex; gap:10px; justify-content:center; margin-bottom:14px; }
+  /* Sits right at the top of the felt, above the stats, so it's always in
+     view without scrolling down to the bet panel below the grid — the
+     same Cash Out action as the button down there, just where you can
+     actually reach it mid-round on a full 5x5 board. */
+  .mines-cashout-top{
+    width:100%; max-width:280px; margin:0 auto 12px; display:block;
+    animation: minesCashoutPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes minesCashoutPulse{
+    0%,100%{ box-shadow:0 0 0 rgba(90,220,130,0); }
+    50%{ box-shadow:0 0 16px rgba(90,220,130,.55); }
+  }
+  .mines-status-cell{ background:rgba(0,0,0,.25); border:1px solid var(--brass-dim); border-radius:10px; padding:8px 16px; min-width:112px; }
+  .mines-status-cell .lbl{ display:block; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:3px; }
+  .mines-status-cell .val{ font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:17px; color:var(--brass-light); }
+  .mines-grid{ display:grid; grid-template-columns:repeat(5, 1fr); gap:7px; max-width:340px; margin:0 auto; }
+  .mines-tile{
+    position:relative; aspect-ratio:1; border-radius:10px; cursor:pointer;
+    background: radial-gradient(circle at 32% 28%, var(--brass-light), var(--brass) 55%, var(--brass-dim) 100%);
+    border:1px solid rgba(255,255,255,.25);
+    box-shadow: 0 3px 6px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.5), inset 0 -2px 3px rgba(0,0,0,.3);
+    display:flex; align-items:center; justify-content:center; font-size:0;
+    transition: transform .12s ease, box-shadow .2s ease;
+  }
+  .mines-tile:active{ transform:scale(.92); }
+  .mines-tile.disabled{ cursor:default; }
+  .mines-tile.revealed{ cursor:default; font-size:19px; animation: minesRevealPop .32s cubic-bezier(.34,1.6,.5,1); }
+  .mines-tile.revealed.safe{
+    background: radial-gradient(circle at 32% 28%, #baf5c8, #4fae6a 55%, #2e7a45 100%);
+    box-shadow: 0 0 12px rgba(90,220,130,.55), inset 0 1px 1px rgba(255,255,255,.5);
+  }
+  .mines-tile.revealed.mine{
+    background: radial-gradient(circle at 32% 28%, #e08070, #a8342a 55%, #6b1a14 100%);
+    box-shadow: 0 0 14px rgba(220,60,40,.65), inset 0 1px 1px rgba(255,255,255,.4);
+  }
+  .mines-tile.revealed.mine-dimmed{ background:rgba(80,30,25,.55); box-shadow:none; opacity:.65; animation:none; font-size:15px; }
+  @keyframes minesRevealPop{ 0%{ transform:scale(.55); opacity:0; } 65%{ transform:scale(1.15); } 100%{ transform:scale(1); opacity:1; } }
+  /* ---- Plinko — a triangular peg board with a ball that random-walks
+     down through it, landing in one of 9 slots at the bottom. The pegs
+     are decorative (this isn't a literal physics/collision sim), but the
+     ball's path is driven by the exact same random sequence that decides
+     the real outcome, so what you watch happen IS the real result, not a
+     disconnected animation layered on top of it. */
+  .plinko-board-wrap{ position:relative; width:100%; max-width:440px; height:420px; margin:14px auto 6px; }
+  .plinko-pegs{ position:absolute; top:0; left:0; right:0; bottom:68px; display:flex; flex-direction:column; justify-content:space-evenly; padding:10px 8px 0; }
+  .plinko-peg-row{ display:flex; justify-content:center; gap:0; }
+  .plinko-peg{
+    width:8px; height:8px; border-radius:50%; margin:0 7px;
+    background: radial-gradient(circle at 35% 30%, #fff2c8, var(--brass) 60%, var(--brass-dim) 100%);
+    box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 0 4px rgba(255,214,120,.4);
+  }
+  .plinko-ball{
+    position:absolute; top:0; left:50%; width:16px; height:16px; margin:-8px 0 0 -8px;
+    border-radius:50%; display:none; z-index:5;
+    background: radial-gradient(circle at 32% 28%, #ff8a7a, #d8342a 55%, #7a1810 100%);
+    box-shadow: 0 3px 6px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.6), 0 0 10px rgba(216,52,42,.6);
+    /* A little overshoot on the fall itself (not a flat linear drop), plus
+       a quick squash-and-recover pulse triggered at every peg-row landing
+       (see .plinko-ball.bounce-hit below) — together they're what read as
+       an actual bounce off each peg rather than the ball just gliding
+       smoothly between fixed points. */
+    transition: left .19s cubic-bezier(.42,0,.58,1), top .19s cubic-bezier(.3,1.6,.5,1);
+  }
+  .plinko-ball.bounce-hit{ animation: plinkoBallBounce .19s ease; }
+  @keyframes plinkoBallBounce{
+    0%{ transform:scale(1,1); }
+    40%{ transform:scale(1.25,.72); }
+    70%{ transform:scale(.9,1.15); }
+    100%{ transform:scale(1,1); }
+  }
+  /* Slots get their own fixed-height band at the bottom, laid out as a
+     real 13-column grid (matches the 12-row board) rather than flex — the
+     peg triangle above and this grid used to have zero shared alignment
+     logic between them, which is exactly what read as clunky. A grid
+     gives every slot the same guaranteed width, with real room for the
+     number instead of squeezing it into a pill. */
+  .plinko-slots{
+    position:absolute; left:0; right:0; bottom:0; height:64px;
+    display:grid; grid-template-columns:repeat(13, 1fr); gap:2px; padding:0 3px;
+  }
+  .plinko-slot{
+    border-radius:999px; display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono', monospace; font-weight:800; font-size:10px; color:#fff;
+    border:1px solid rgba(255,255,255,.28);
+    box-shadow: inset 0 3px 4px rgba(255,255,255,.32), inset 0 -3px 5px rgba(0,0,0,.4), 0 3px 6px rgba(0,0,0,.5);
+    transition: transform .2s ease, box-shadow .2s ease;
+    position:relative; overflow:hidden;
+  }
+  /* Glossy top-third highlight sweep — the bit of "flair" that reads as
+     a real polished capsule rather than a flat coloured rectangle. */
+  .plinko-slot::after{
+    content:''; position:absolute; top:3px; left:14%; right:14%; height:32%; border-radius:999px;
+    background: linear-gradient(180deg, rgba(255,255,255,.4), rgba(255,255,255,0));
+    pointer-events:none;
+  }
+  /* Six distinct tiers now (was four) matching the six distinct payout
+     values — a genuinely wider colour spread for a genuinely wider odds
+     spread, gold at the rare 180x edges fading all the way through to
+     grey at the always-zero centre. */
+  .plinko-slot.tier-edge{
+    background: linear-gradient(160deg, #ffd67a, #c9871f); font-size:9px;
+    box-shadow: inset 0 3px 4px rgba(255,255,255,.32), inset 0 -3px 5px rgba(0,0,0,.4), 0 0 8px rgba(255,214,120,.55), 0 3px 6px rgba(0,0,0,.5);
+  }
+  .plinko-slot.tier-high{ background: linear-gradient(160deg, #e8a35c, #a85f24); font-size:9px; }
+  .plinko-slot.tier-upper-mid{ background: linear-gradient(160deg, #c9a25c, #8a6620); }
+  .plinko-slot.tier-mid{ background: linear-gradient(160deg, #6f8fae, #3f5c78); }
+  .plinko-slot.tier-low-mid{ background: linear-gradient(160deg, #5a7684, #354a54); }
+  .plinko-slot.tier-low{ background: linear-gradient(160deg, #5a6670, #38424b); }
+  .plinko-slot.landed{ animation: plinkoSlotHit .5s ease; }
+  @keyframes plinkoSlotHit{ 0%{ transform:translateY(0); } 35%{ transform:translateY(3px) scale(1.12); box-shadow:0 0 10px rgba(255,214,120,.7); } 100%{ transform:translateY(0); } }
+
+  @keyframes tableFlashRed{ 0%{ background-color:rgba(193,96,74,0); } 25%{ background-color:rgba(193,96,74,.28); } 100%{ background-color:rgba(193,96,74,0); } }
+  .panel.pc-flash-red::after{ animation: tableFlashRed .5s ease; }
+  @keyframes tableFlashGold{ 0%{ background-color:rgba(255,214,120,0); } 25%{ background-color:rgba(255,214,120,.22); } 100%{ background-color:rgba(255,214,120,0); } }
+  .panel.pc-flash-gold::after{ animation: tableFlashGold .6s ease; }
+  /* Roulette's wheel panel is a plain .panel, not a .bj-table — it needs
+     its own ::after since .bj-table::after (used for the flash above) is
+     scoped to that class and wouldn't otherwise fire here. */
+  #rouletteWheelPanel::after{ content:''; position:absolute; inset:0; pointer-events:none; z-index:2; border-radius:inherit; }
+
+  /* Confetti burst — lightweight DOM particles (not canvas), positioned and
+     angled from JS, each just a small rotated rect flying outward and
+     falling with gravity-ish easing before fading. */
+  .bj-confetti-piece{
+    position:fixed; top:0; left:0; width:8px; height:14px; z-index:500; pointer-events:none;
+    border-radius:2px; will-change:transform, opacity;
+  }
+  @keyframes confettiFall{
+    0%{ transform:translate(var(--cx), var(--cy)) rotate(0deg); opacity:1; }
+    100%{ transform:translate(var(--tx), var(--ty)) rotate(var(--rot)); opacity:0; }
+  }
+
+  /* XP balance ticking — the number itself gets a colour flash + brief pop
+     while it counts, rather than just snapping to the new value. */
+  @keyframes xpPop{ 0%{ transform:scale(1); } 30%{ transform:scale(1.22); } 100%{ transform:scale(1); } }
+  #xpBalanceDisplay.pc-xp-up{ animation: xpPop .5s cubic-bezier(.34,1.6,.5,1); color:var(--win) !important; }
+  #xpBalanceDisplay.pc-xp-down{ animation: xpPop .5s cubic-bezier(.34,1.6,.5,1); color:var(--loss) !important; }
+
+  .toteboard-cell{
+    flex:1; background: linear-gradient(165deg, var(--felt-2), var(--felt-3)); border:1px solid var(--line); border-radius:8px;
+    padding:10px 8px; text-align:center; position:relative; overflow:hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,.18), 0 1px 0 rgba(255,255,255,.03) inset;
+  }
+  .toteboard-cell::before{
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, transparent, var(--brass-dim), transparent);
+  }
+  .toteboard-cell .lbl{
+    font-family:'Barlow Condensed', sans-serif; font-size:10px; letter-spacing:1.5px;
+    text-transform:uppercase; color: var(--muted); display:block; margin-bottom:2px;
+  }
+  .toteboard-cell .val{
+    font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:18px; color: var(--chalk);
+  }
+  .toteboard-cell.pos .val{ color: var(--win); }
+  .toteboard-cell.neg .val{ color: var(--loss); }
+
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  .tabbar{
+    position:fixed; bottom:0; left:0; right:0; z-index:20;
+    background: rgba(11,29,22,0.7);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    display:flex; align-items:flex-start; padding-top:14px;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .tabbar::before{
+    content:''; position:absolute; left:0; right:0; top:0; height:1px;
+    background: linear-gradient(90deg, transparent, var(--brass) 15%, var(--brass-light) 50%, var(--brass) 85%, transparent);
+    opacity:.5; box-shadow:0 0 8px rgba(203,177,102,.5);
+  }
+  .tab-btn{
+    flex:1; background:none; border:none; color: var(--muted); position:relative;
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:11px;
+    letter-spacing:1.5px; text-transform:uppercase; padding:10px 4px 8px;
+    display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer;
+  }
+  .tab-btn .icon{ font-size:18px; line-height:1; position:relative; z-index:1; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
+  .nav-icon-img{ width:22px; height:22px; object-fit:contain; display:block; margin:0 auto; }
+  .tab-btn.active{ color: var(--brass); }
+  .tab-btn.active .icon{ filter: drop-shadow(0 0 8px rgba(199,162,72,.6)); transform: translateY(-2px) scale(1.12); }
+  .tab-btn.active::before{
+    content:''; position:absolute; top:2px; left:50%; transform:translateX(-50%);
+    width:38px; height:38px; border-radius:50%;
+    background: radial-gradient(circle, rgba(199,162,72,.18), transparent 72%);
+    animation: tabPop .3s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes tabPop{ from{ transform:translateX(-50%) scale(.4); opacity:0; } to{ transform:translateX(-50%) scale(1); opacity:1; } }
+
+  /* ---- Casino coin — the elevated hero nav button ---- */
+  .tab-btn-coin{
+    flex:1.25; padding-top:0; gap:0; overflow:visible;
+  }
+  .coin-disc-wrap{
+    position:relative; margin-top:-40px; width:64px; height:64px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .coin-glow{
+    position:absolute; inset:-20px; border-radius:50%; pointer-events:none;
+    background: radial-gradient(circle, rgba(203,177,102,0.4), rgba(203,177,102,0) 66%);
+    animation: coinBreathe 3.6s ease-in-out infinite;
+  }
+  @keyframes coinBreathe{ 0%,100%{ opacity:.7; transform:scale(1); } 50%{ opacity:1; transform:scale(1.08); } }
+  .coin-laurel{ position:absolute; top:14px; font-size:19px; opacity:.8; z-index:1; }
+  .coin-laurel-l{ left:-10px; transform:scaleX(-1) rotate(8deg); }
+  .coin-laurel-r{ right:-10px; transform:rotate(-8deg); }
+  .coin-disc{
+    position:relative; width:60px; height:60px; border-radius:50%; z-index:2;
+    background:
+      repeating-conic-gradient(from 0deg, rgba(0,0,0,.16) 0deg 2deg, transparent 2deg 4deg),
+      radial-gradient(circle at 32% 24%, #FDF6DA 0%, var(--brass-light) 16%, var(--brass) 44%, #9C8548 76%, #5E4D26 100%);
+    box-shadow:
+      0 12px 22px rgba(0,0,0,.6), 0 2px 0 var(--brass-dim),
+      inset 0 3px 4px rgba(255,255,255,.6), inset 0 -4px 6px rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center;
+    transition: transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .tab-btn-coin:active .coin-disc{ transform:scale(0.88) rotate(-2deg); }
+  .coin-disc::before{
+    content:''; position:absolute; inset:5px; border-radius:50%;
+    border:1px solid rgba(8,19,15,.4);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.28), inset 0 0 10px rgba(0,0,0,.15);
+  }
+  .coin-face{ position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; line-height:1; }
+  .coin-crown{ font-size:10px; margin-bottom:1px; color:var(--ink); filter: drop-shadow(0 1px 0 rgba(255,255,255,.3)); }
+  .coin-spade{ font-size:19px; color:var(--ink); filter:drop-shadow(0 1px 0 rgba(255,255,255,.25)); }
+  .coin-shine{ position:absolute; inset:0; border-radius:50%; overflow:hidden; pointer-events:none; z-index:1; }
+  .coin-shine::after{
+    content:''; position:absolute; top:0; left:-140%; width:55%; height:100%;
+    background: linear-gradient(75deg, transparent, rgba(255,255,255,.6), transparent);
+    animation: coinSweep 4.8s ease-in-out infinite;
+  }
+  @keyframes coinSweep{ 0%, 58%{ left:-140%; } 78%{ left:140%; } 100%{ left:140%; } }
+  .coin-sparkle{ position:absolute; border-radius:50%; background:var(--brass-light); pointer-events:none; z-index:3; }
+  .coin-sparkle-1{ width:3px; height:3px; top:6px; right:9px; animation: coinTwinkle 3s ease-in-out infinite; }
+  .coin-sparkle-2{ width:2px; height:2px; bottom:14px; left:4px; animation: coinTwinkle 3s ease-in-out 1.4s infinite; }
+  @keyframes coinTwinkle{ 0%,100%{ opacity:0; transform:scale(.5); } 50%{ opacity:1; transform:scale(1.3); } }
+  .coin-label{
+    margin-top:6px; white-space:nowrap;
+    font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:10.5px;
+    letter-spacing:1.6px; text-transform:uppercase; color:var(--muted); transition:color .25s ease, text-shadow .25s ease;
+  }
+  .tab-btn-coin.active .coin-label{ color:var(--brass-light); text-shadow:0 0 10px rgba(245,232,168,.4); }
+  .tab-btn-coin.active::before{ content:none; } /* the coin already carries its own glow — skip the generic tab-pop circle */
+  @media (prefers-reduced-motion: reduce){
+    .coin-glow, .coin-shine::after, .coin-sparkle{ animation:none !important; }
+  }
+
+  .panel{
+    padding:16px; margin-bottom:14px; overflow-x:auto; border:1px solid var(--line); border-radius:10px;
+  }
+  .panel h2{
+    font-family:'Barlow Condensed', sans-serif; font-size:15px; font-weight:700;
+    text-transform:uppercase; letter-spacing:1.5px; color: var(--brass); margin:0 0 10px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+  }
+  .panel h2 .sub{
+    font-family:'IBM Plex Mono', monospace; font-weight:400; text-transform:none;
+    letter-spacing:0; font-size:11px; color: var(--muted);
+  }
+  .panel-quiet{ padding:12px 16px; opacity:.72; border-color:rgba(239,234,216,.06); }
+  .panel-quiet h2{ font-size:12px; color:var(--muted); letter-spacing:1px; }
+
+  table{ width:100%; border-collapse:collapse; font-size:12px; min-width:520px; }
+  th{
+    text-align:left; font-family:'IBM Plex Mono', monospace; font-size:9px;
+    text-transform:uppercase; letter-spacing:1px; color:var(--muted);
+    border-bottom:1px solid var(--brass-dim); padding:7px 6px; white-space:nowrap;
+  }
+  td{ padding:7px 6px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono', monospace; white-space:nowrap; }
+  td.name{ font-weight:600; color:var(--chalk); }
+  tr.rank-1 td.name{ color: var(--brass); }
+  tr.my-row{ background: rgba(203,177,102,.08); }
+  tr.my-row td{ border-bottom-color: rgba(203,177,102,.25); }
+  .my-row-badge{
+    display:inline-block; margin-left:5px; font-family:'Barlow Condensed', sans-serif; font-size:8px; font-weight:700;
+    letter-spacing:.5px; text-transform:uppercase; color:#151007; background:var(--brass-light);
+    padding:1px 5px; border-radius:999px; vertical-align:middle;
+  }
+  .pos{ color: var(--win); } .neg{ color: var(--loss); }
+  /* Small "telly" readout under a leaderboard balance — the lifetime total
+     never goes down, so it reads as the player's true all-time standing
+     even when their spendable balance has dipped from recent losses. */
+  .lb-lifetime-telly{
+    font-family:'IBM Plex Mono', monospace; font-size:9px; color:var(--muted); letter-spacing:.2px;
+  }
+  /* Croupier caption — an italic, dealer-voice line that briefly flashes
+     in and settles, distinct from the bold outcome/result text each game
+     already shows (this is table atmosphere, not the actual result). */
+  .croupier-caption{
+    text-align:center; font-style:italic; font-size:12px; color:var(--muted);
+    min-height:16px; margin-top:2px; letter-spacing:.2px;
+  }
+  @keyframes croupierFlash{ 0%{ opacity:0; transform:translateY(-3px); } 25%{ opacity:1; transform:translateY(0); } 80%{ opacity:1; } 100%{ opacity:.75; } }
+  .croupier-caption.croupier-flash{ animation: croupierFlash .5s ease-out; }
+  .lb-streak-badge{
+    display:inline-flex; align-items:center; margin-left:5px; font-family:'Barlow Condensed', sans-serif;
+    font-size:10.5px; font-weight:700; color:#ffb199; text-shadow:0 0 8px rgba(255,120,80,.6);
+    animation: streakFlicker 1.4s ease-in-out infinite;
+  }
+  @keyframes streakFlicker{ 0%,100%{ opacity:1; } 50%{ opacity:.72; } }
+  /* Player tier gem — a small faceted diamond shape (rotated square, split
+     top/bottom facets), not an emoji. Colour is the only thing that
+     changes between tiers; same shape throughout reads as one consistent
+     status system rather than five unrelated icons. */
+  .tier-badge{
+    display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:middle;
+    transform:rotate(45deg); border-radius:2px; position:relative; flex-shrink:0;
+    box-shadow:0 1px 3px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.55), inset 0 -1px 1px rgba(0,0,0,.35);
+  }
+  .tier-badge.tier-bronze{ background: linear-gradient(155deg, #e0a469, #a9672f 55%, #6b3f1a); }
+  .tier-badge.tier-silver{ background: linear-gradient(155deg, #f4f4f4, #b8b8b8 55%, #838383); }
+  .tier-badge.tier-gold{ background: linear-gradient(155deg, #fff0b8, #d4af37 55%, #8a6620); }
+  .tier-badge.tier-platinum{ background: linear-gradient(155deg, #eef8ff, #a9cbe0 55%, #6f93a8); }
+  .tier-badge.tier-diamond{
+    background: linear-gradient(155deg, #eafdff, #7fd8ff 55%, #2a9dc9);
+    box-shadow:0 1px 3px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.7), inset 0 -1px 1px rgba(0,0,0,.3), 0 0 5px rgba(127,216,255,.7);
+  }
+  /* Badges screen's own status card — a real card instead of a cramped
+     inline text line, since this is the one place someone specifically
+     comes to check where they stand. Big gem + tier name up top (the
+     headline), everything else demoted to one small secondary line. */
+  .tier-status-card{
+    background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; margin-bottom:14px;
+  }
+  .tier-status-main{ display:flex; align-items:center; gap:9px; }
+  .tier-status-gem{ width:18px; height:18px; margin:0; flex-shrink:0; }
+  .tier-status-name{
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:17px;
+    color:var(--brass-light); letter-spacing:.3px; flex:1;
+  }
+  .tier-status-info-btn{
+    flex-shrink:0; width:24px; height:24px; border-radius:50%; background:rgba(0,0,0,.25);
+    border:1px solid var(--brass-dim); color:var(--muted); font-size:12px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .tier-status-sub{ font-size:10.5px; color:var(--muted); margin-top:6px; }
+  .tier-up-gem-row{ display:flex; justify-content:center; margin:6px 0 10px; filter: drop-shadow(0 0 10px rgba(255,214,120,.5)); }
+  /* Home tab's Form Guide — one line per category (Tipping/Casino streak/
+     Betting/Casino Pot), same weight as the Highlights rows above it. */
+  .form-guide-row{ display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .form-guide-row:last-child{ border-bottom:none; }
+  .form-guide-icon{ font-size:16px; flex-shrink:0; width:20px; text-align:center; }
+  .form-guide-text{ font-size:12.5px; color:var(--chalk); line-height:1.4; }
+  .form-guide-text b{ color:var(--brass-light); }
+  .form-guide-week{ color:var(--muted); font-size:11px; margin-left:4px; }
+
+  .lb-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .lb-table{
+    width:100%;
+    /* position:sticky on table cells is unreliable to genuinely broken in
+       many browsers when the table uses border-collapse:collapse (the
+       base table{} rule above) — this is a well-documented limitation,
+       not a guess. separate+border-spacing:0 keeps the same visual look
+       (no double borders) while actually letting sticky cells work. */
+    border-collapse:separate; border-spacing:0;
+  }
+  .lb-table td, .lb-table th{ border-bottom:1px solid var(--line); }
+  .lb-sticky{ position:sticky; background:var(--felt-2); z-index:1; }
+  .lb-rank-col{ left:0; width:26px; min-width:26px; }
+  .lb-name-col{ left:26px; box-shadow:2px 0 4px rgba(0,0,0,.25); padding-right:8px; min-width:82px; }
+  .lb-sticky.my-row{ background:#1a3a2c; }
+  th.lb-sticky{ z-index:2; }
+  td.name.profile-link{
+    cursor:pointer; padding-top:9px; padding-bottom:9px;
+  }
+  .lb-joker-icon{ font-size:11px; margin-left:2px; }
+  td.name.profile-link::after{
+    content:"›"; color:var(--brass-dim); margin-left:4px; font-weight:700;
+  }
+
+  .fin-row{ display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono', monospace; font-size:13px; }
+  .fin-row:last-child{ border-bottom:none; }
+  .fin-row .lbl{ color: var(--muted); }
+
+  .balance-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+  .balance-grid .toteboard-cell{ padding:12px 6px; }
+  .balance-grid .val{ font-size:15px; }
+
+  .owed-row{ display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono', monospace; font-size:13px; }
+  .owed-row:last-child{ border-bottom:none; }
+  .owed-row .name{ font-weight:600; }
+  .owed-row .amt{ color: var(--muted); }
+  .owed-row .amt.due{ color: var(--loss); font-weight:600; }
+  .owed-row-full{ padding:9px 0; border-bottom:1px solid var(--line); }
+  .owed-row-full:last-child{ border-bottom:none; }
+  .owed-row-full .owed-row{ padding:0 0 6px; border:none; }
+  .offline-money-notice{ font-family:'Barlow Condensed', sans-serif; font-size:12px; letter-spacing:.3px; color:var(--brass-light); background:rgba(239,234,216,.06); border:1px solid rgba(239,234,216,.15); border-radius:8px; padding:8px 12px; margin-bottom:10px; text-align:center; }
+  .dues-bar-track{ height:5px; border-radius:3px; background:rgba(239,234,216,.08); overflow:hidden; }
+  .dues-bar-fill{ height:100%; border-radius:3px; transition:width .3s; }
+  .dues-bar-fill.paid-full{ background:var(--win); }
+  .dues-bar-fill.paid-partial{ background:var(--brass); }
+  .dues-bar-fill.paid-none{ background:var(--loss); opacity:.5; }
+  .fully-paid-row{ background:rgba(111,169,138,.08); border-radius:8px; padding-left:8px; padding-right:8px; margin:0 -8px; }
+  .fully-paid-amt{ color:var(--win) !important; font-weight:700; }
+  .paid-badge{
+    display:inline-block; margin-left:5px; font-family:'Barlow Condensed', sans-serif; font-size:8px; font-weight:700;
+    letter-spacing:.5px; text-transform:uppercase; color:#0d2318; background:var(--win);
+    padding:1px 5px; border-radius:999px; vertical-align:middle;
+  }
+
+  .highlight-row{ display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono', monospace; font-size:12px; }
+  .multi-leg-block{ padding:10px 12px; margin-bottom:8px; border-radius:10px; background:rgba(239,234,216,.03); border:1px solid var(--line); }
+  .multi-leg-block:last-of-type{ margin-bottom:0; }
+  .multi-leg-block.result-win{ background:rgba(111,169,138,.13); border-color:rgba(111,169,138,.35); }
+  .multi-leg-block.result-loss{ background:rgba(193,96,74,.16); border-color:rgba(193,96,74,.45); }
+  .multi-leg-block.result-void{ background:rgba(91,141,190,.14); border-color:rgba(91,141,190,.4); }
+  .multi-leg-block.result-mia{ background:rgba(224,185,59,.16); border-color:rgba(224,185,59,.45); }
+  .multi-leg-row{ display:flex; justify-content:space-between; align-items:center; font-size:13.5px; gap:8px; }
+  .multi-leg-name{ color:var(--chalk); font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sgm-badge{ display:inline-block; margin-top:6px; padding:3px 9px; border-radius:20px; font-family:'IBM Plex Mono', monospace; font-size:9.5px; font-weight:700; letter-spacing:.3px; }
+  .sgm-amount{ font-weight:700; }
+  .sgm-badge.win{ border:1px solid var(--win); color:var(--win); background:rgba(111,169,138,.12); }
+  .sgm-badge.loss{ border:1px solid var(--loss); color:var(--loss); background:rgba(193,96,74,.12); }
+  .sgm-badge.pending{ border:1px solid var(--brass-dim); color:var(--brass); }
+  .cashout-badge{
+    display:inline-block; margin-top:6px; margin-left:6px; padding:3px 9px; border-radius:20px;
+    font-family:'IBM Plex Mono', monospace; font-size:9.5px; font-weight:700; letter-spacing:.3px;
+    border:1px solid var(--win); color:#0d1f16; background:var(--win);
+  }
+  .multi-leg-name.loss{ color:#ff9478; }
+  .multi-leg-odds{ font-family:'IBM Plex Mono', monospace; color:var(--muted); flex:0 0 auto; }
+  .multi-leg-result{ font-size:19px; flex:0 0 auto; }
+  .multi-leg-roast{ font-size:11px; color:#ff9478; font-style:italic; font-weight:600; opacity:.95; margin-top:6px; padding-right:2px; }
+  .multi-leg-mia-note{ font-size:11px; color:#E0B93B; font-style:italic; font-weight:600; opacity:.9; margin-top:6px; padding-right:2px; }
+  .multi-summary-banner{ background:linear-gradient(165deg, rgba(193,96,74,.18), rgba(193,96,74,.08)); border:1px solid rgba(193,96,74,.35); border-radius:8px; padding:9px 12px; margin-bottom:12px; font-size:12.5px; font-weight:600; color:var(--chalk); }
+  .otd-year{ font-family:'Barlow Condensed', sans-serif; font-size:32px; font-weight:700; color:var(--brass); text-align:center; line-height:1; }
+  .otd-text{ font-size:13px; color:var(--chalk); text-align:center; line-height:1.5; margin-top:8px; }
+  .multi-summary-banner.clean{ background:linear-gradient(165deg, rgba(111,169,138,.18), rgba(111,169,138,.08)); border-color:rgba(111,169,138,.35); }
+  .highlight-row:last-child{ border-bottom:none; }
+  .highlight-row .hl-lbl{ color: var(--muted); flex-shrink:0; }
+  .highlight-row .hl-detail{ text-align:right; }
+  .highlight-row .hl-name{ font-weight:700; color: var(--brass); }
+  .highlight-row .hl-week{ color: var(--muted); font-size:10px; display:block; }
+
+  .slip-card{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+  .slip-card:last-child{ border-bottom:none; }
+  .slip-thumb{
+    width:48px; height:48px; flex-shrink:0; border-radius:6px; overflow:hidden;
+    background:#060A08; display:flex; align-items:center; justify-content:center; border:1px solid var(--line);
+  }
+  .slip-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .slip-icon{ font-size:20px; }
+  .slip-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .slip-info a{ color:var(--chalk); font-family:'IBM Plex Mono', monospace; font-size:12px; text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .slip-info a:hover{ color:var(--brass); }
+  .slip-date{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--muted); }
+
+  .afl-game{
+    border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .afl-game.live{ border-color: var(--brass); }
+  .afl-teams{ display:flex; justify-content:space-between; align-items:center; padding:3px 0; gap:8px; }
+  .afl-teams .team-group{ display:flex; align-items:center; gap:6px; min-width:0; flex:1; }
+  .afl-teams .team-group img{ flex:0 0 auto; }
+  .afl-teams .team{ font-size:13px; color:var(--chalk); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .odds-price{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--brass); font-weight:600; background:rgba(199,162,72,.1); padding:1px 5px; border-radius:4px; flex:0 0 auto; }
+
+  .tip-game{ border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px; background:rgba(0,0,0,.15); }
+  #tippingRoundSelect{ width:100%; padding:9px; background:#060A08; color:var(--chalk); border:1px solid var(--line); border-radius:6px; font-family:'IBM Plex Sans', sans-serif; font-size:13px; }
+  .tip-game-meta{ display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--muted); font-family:'IBM Plex Mono', monospace; text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; gap:8px; }
+  .tip-game-time{ color:var(--brass); font-weight:600; flex:0 0 auto; }
+  .tip-game-venue{ text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+
+  .subnav-row{ display:flex; gap:8px; margin-bottom:14px; }
+  .subnav-btn{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+    background: linear-gradient(165deg, var(--felt-3), var(--felt-2));
+    border:1px solid var(--brass-dim); border-radius:10px;
+    padding:12px 6px; cursor:pointer;
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:12px;
+    letter-spacing:1px; text-transform:uppercase; color:var(--muted);
+    box-shadow: 0 3px 10px rgba(0,0,0,.2);
+  }
+  .subnav-icon{ font-size:20px; line-height:1; }
+  .subnav-btn.active{
+    background: linear-gradient(165deg, #dab868, var(--brass) 60%);
+    border-color: var(--brass); color:#151007;
+    box-shadow: 0 4px 16px rgba(199,162,72,.4);
+  }
+  .subnav-btn:active{ transform: scale(0.93); }
+
+  .news-item{ display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line); text-decoration:none; }
+  .news-item:last-child{ border-bottom:none; }
+  .news-item-img{ width:64px; height:64px; flex:0 0 auto; object-fit:cover; border-radius:8px; background:var(--felt-3); }
+  .news-item.no-img .news-item-img{ display:none; }
+  .news-item-body{ flex:1; min-width:0; }
+  .news-item-title{ color:var(--chalk); font-size:13.5px; font-weight:600; line-height:1.4; }
+  .news-item-meta{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--muted); margin-top:5px; text-transform:uppercase; letter-spacing:.5px; }
+  .news-item:active .news-item-title{ color:var(--brass); }
+  .tip-pick-row{ display:flex; gap:8px; }
+  .tip-pick-btn{
+    flex:1; background:transparent; border:1px solid var(--line); color:var(--chalk);
+    font-family:'IBM Plex Sans', sans-serif; font-size:13px; font-weight:600;
+    padding:10px 6px; border-radius:6px; cursor:pointer; text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .tip-pick-btn.selected{ border-color:var(--brass); background:rgba(199,162,72,.15); color:var(--brass); }
+  .tip-draw-btn{
+    display:block; width:100%; margin-top:6px; background:transparent; border:1px dashed var(--line); color:var(--muted);
+    font-family:'IBM Plex Sans', sans-serif; font-size:11px; font-weight:600; padding:6px; border-radius:6px; cursor:pointer; text-align:center;
+  }
+  .tip-draw-btn.selected{ border-style:solid; border-color:var(--brass); background:rgba(199,162,72,.15); color:var(--brass); }
+  .tip-margin-field{ margin-top:8px; }
+  .tip-margin-field label{ font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-family:'IBM Plex Mono', monospace; display:block; margin-bottom:4px; }
+  .tip-margin-field input{ width:100%; background:#060A08; color:var(--chalk); border:1px solid var(--line); border-radius:5px; font-family:'IBM Plex Mono', monospace; font-size:13px; padding:8px; }
+  .tip-locked-row{ display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .tip-locked-row:last-child{ border-bottom:none; }
+  .tip-locked-row .tip-pick-label{ font-family:'IBM Plex Mono', monospace; color:var(--muted); }
+  .tip-locked-row.correct .tip-pick-label{ color:var(--win); }
+  .tip-locked-row.incorrect .tip-pick-label{ color:var(--loss); }
+  .tip-action-row{ display:flex; gap:10px; }
+  .tip-action-row #tipSaveAllBtn, .tip-action-row .tip-joker-btn{ flex:1; width:auto; }
+  #tipSaveAllBtn{ font-family:'Barlow Condensed', sans-serif; font-size:14px; letter-spacing:1px; font-weight:700; text-transform:uppercase; padding:13px 16px; border-radius:8px; border:1px solid var(--brass); background:linear-gradient(165deg, #dab868, var(--brass) 60%); box-shadow:0 4px 14px rgba(199,162,72,.25); color:#151007; cursor:pointer; }
+  #tipSaveAllBtn:disabled{ opacity:.5; cursor:default; }
+  .tip-joker-btn{
+    font-family:'Barlow Condensed', sans-serif; font-size:14px; letter-spacing:1px; font-weight:700;
+    text-transform:uppercase; padding:13px 16px; border-radius:8px; border:1px solid var(--brass);
+    background:linear-gradient(165deg, #dab868, var(--brass) 60%); box-shadow:0 4px 14px rgba(199,162,72,.25);
+    color:#151007; cursor:pointer;
+  }
+  .tip-joker-btn.active-joker{
+    border-color:#B8722E; background:linear-gradient(165deg, #E8A15C, #B8722E 60%);
+    box-shadow:0 4px 14px rgba(184,114,46,.35); color:#2b1706;
+  }
+  .tip-joker-btn:disabled{ opacity:.5; cursor:default; }
+
+  /* --- Tip countdown (pre-first-bounce) --- */
+  .tip-lock-bubble{
+    background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:10px;
+    padding:12px; margin-bottom:8px; text-align:center;
+  }
+  .tip-lock-bubble:last-child{ margin-bottom:0; }
+  .tip-countdown-wrap{ margin-bottom:10px; }
+  .tip-countdown-clock-bubble{
+    background: radial-gradient(120px 70px at 50% 0%, rgba(199,162,72,.1), transparent), rgba(0,0,0,.18);
+    border:1px solid var(--line); border-radius:10px; padding:14px 10px 12px;
+    display:flex; flex-direction:column; align-items:center; text-align:center; margin-bottom:8px;
+  }
+  .tip-countdown-lock{ font-size:16px; margin-bottom:4px; }
+  .tip-countdown-clock{
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:30px;
+    letter-spacing:.03em; color:var(--brass-light); line-height:1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tip-countdown-label{ font-size:10px; color:var(--muted); margin-top:6px; line-height:1.5; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans', sans-serif; }
+  .tip-countdown-label b{ color:var(--brass-light); font-weight:600; }
+  .tip-your-pick-confirm{
+    font-size:11.5px; color:var(--muted); line-height:1.6;
+  }
+  .tip-your-pick-confirm b{ color:var(--chalk); font-weight:600; }
+
+  /* --- Revealed: two-column team layout --- */
+  .tip-team-cols{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .tip-team-col{
+    background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:10px;
+    padding:10px 6px 9px; text-align:center;
+  }
+  .tip-team-col.leader{
+    background:linear-gradient(180deg, rgba(111,169,138,.18), rgba(111,169,138,.05));
+    border-color: rgba(111,169,138,.4);
+    box-shadow:0 0 0 1px rgba(111,169,138,.3);
+  }
+  .tip-team-col.trail{
+    background:linear-gradient(180deg, rgba(193,96,74,.1), rgba(193,96,74,.03));
+    border-color: rgba(193,96,74,.35);
+  }
+  .tip-team-col img{ display:block; margin:0 auto 6px; }
+  .tip-team-name{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:13px; color:var(--brass-light); margin-bottom:2px; }
+  .tip-team-result-icon{ font-size:11px; color:var(--muted); margin-bottom:6px; min-height:14px; }
+  .tip-team-col.leader .tip-team-result-icon{ color:var(--win); }
+  .tip-team-col.trail .tip-team-result-icon{ color:var(--loss); }
+  .tip-picker-list{ display:flex; flex-direction:column; gap:3px; }
+  .tip-picker-name{ font-size:11.5px; color:var(--chalk); background:rgba(255,255,255,.03); border-radius:5px; padding:3px 4px; }
+  .tip-picker-count{ font-size:9.5px; color:var(--muted); margin-top:6px; font-family:'IBM Plex Mono', monospace; text-transform:uppercase; letter-spacing:.5px; }
+  table.ladder-table{ width:100%; border-collapse:collapse; font-size:13px; min-width:0; }
+  table.ladder-table th{ text-align:left; font-family:'IBM Plex Mono', monospace; font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); border-bottom:1px solid var(--brass-dim); padding:6px 4px; }
+  table.ladder-table td{ padding:7px 4px; border-bottom:1px solid var(--line); font-family:'IBM Plex Mono', monospace; }
+  table.ladder-table tr.ladder-leader td{ background:rgba(111,169,138,.2); color:var(--win); font-weight:700; border-bottom-color:transparent; }
+  table.ladder-table tr.ladder-leader td:first-child{ border-top-left-radius:10px; border-bottom-left-radius:10px; padding-left:8px; }
+  table.ladder-table tr.ladder-leader td:last-child{ border-top-right-radius:10px; border-bottom-right-radius:10px; padding-right:8px; }
+  table.ladder-table tr.ladder-loser td{ background:rgba(193,96,74,.2); color:var(--loss); font-weight:700; border-bottom-color:transparent; }
+  table.ladder-table tr.ladder-loser td:first-child{ border-top-left-radius:10px; border-bottom-left-radius:10px; padding-left:8px; }
+  table.ladder-table tr.ladder-loser td:last-child{ border-top-right-radius:10px; border-bottom-right-radius:10px; padding-right:8px; }
+  .ladder-leader-badge{
+    display:inline-block; margin-left:6px; font-family:'Barlow Condensed', sans-serif; font-size:8.5px; font-weight:700;
+    letter-spacing:.5px; text-transform:uppercase; color:#151007;
+    background:linear-gradient(135deg, var(--brass-light), var(--brass));
+    padding:1px 6px; border-radius:999px; vertical-align:middle;
+  }
+  .tip-joker-icon{ display:inline-block; margin-left:5px; font-size:12px; vertical-align:middle; filter:drop-shadow(0 0 3px rgba(155,111,209,.7)); }
+  .ladder-move-up{ color:var(--win); font-size:10px; font-weight:700; margin-left:4px; }
+  .ladder-move-down{ color:var(--loss); font-size:10px; font-weight:700; margin-left:4px; }
+  .ladder-move-same{ color:var(--muted); font-size:10px; margin-left:4px; }
+  .tip-crowd-split-line{
+    text-align:center; font-family:'IBM Plex Mono', monospace; font-size:10.5px; font-weight:600;
+    color:var(--brass-light); margin-top:6px; padding-top:6px; border-top:1px solid var(--line);
+  }
+  .afl-teams .score{ font-size:16px; font-weight:700; color:var(--chalk); flex:0 0 auto; }
+  .afl-status{
+    text-align:center; font-size:10px; color:var(--brass); text-transform:uppercase;
+    letter-spacing:1px; padding:3px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    margin:4px 0;
+  }
+  .afl-venue{ font-size:10px; color:var(--muted); text-align:center; margin-top:2px; }
+
+  .meeting-block{ margin-bottom:14px; }
+  .meeting-name{ font-weight:600; font-size:14px; color:var(--brass); margin-bottom:6px; }
+  .meeting-name.abandoned{ color:var(--loss); }
+  .race-row{
+    border:1px solid var(--line); border-radius:8px; padding:9px 12px; margin-bottom:6px;
+    cursor:pointer;
+  }
+  .race-row-head{ display:flex; justify-content:space-between; align-items:center; }
+  .race-row-name{ font-size:12.5px; color:var(--chalk); }
+  .race-row-time{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--muted); }
+  .race-chevron{ display:inline-block; color:var(--brass-dim); font-size:12px; transition: transform .3s cubic-bezier(.34,1.56,.64,1), color .2s ease; }
+  .race-row:has(.race-runners.open) .race-chevron{ transform: rotate(180deg); color:var(--brass); }
+  .race-row.has-run .race-row-name{ color:var(--muted); }
+  .race-ran-tag{ font-family:'Barlow Condensed', sans-serif; font-weight:700; letter-spacing:1px; font-size:10px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
+  .race-ran-notice{ font-size:11px; color:var(--muted); background:rgba(239,234,216,0.05); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px; line-height:1.5; }
+  .race-runners{ display:grid; grid-template-rows: 0fr; transition: grid-template-rows .32s cubic-bezier(.4,0,.2,1); }
+  .race-runners.open{ grid-template-rows: 1fr; margin-top:8px; border-top:1px solid var(--line); }
+  .race-runners .rr-inner{ overflow:hidden; }
+  .race-runners.open .rr-inner{ padding-top:8px; }
+  .racing-day-btn{
+    background: transparent; border:1px solid var(--brass-dim); color: var(--muted);
+    font-family:'IBM Plex Sans', sans-serif; font-size:12px; font-weight:600;
+    padding:6px 14px; border-radius:8px; cursor:pointer; flex:1;
+  }
+  .racing-day-btn.active{ color: var(--brass); border-color: var(--brass); background: rgba(199,162,72,0.1); }
+  .runner-row{
+    display:flex; justify-content:space-between; align-items:center; padding:4px 0;
+    font-size:12px; border-bottom:1px solid rgba(255,255,255,0.05);
+  }
+  .runner-row:last-child{ border-bottom:none; }
+  .runner-name{ color:var(--chalk); }
+  .runner-name.best{ color:var(--brass); font-weight:600; }
+  .runner-meta{ font-size:10px; color:var(--muted); }
+  .runner-stats{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--muted); }
+  .runner-price{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--brass); font-weight:600; margin-left:6px; padding:1px 4px; border-radius:4px; }
+  .runner-price.price-flash{ animation: priceFlash 1.1s ease; }
+  @keyframes priceFlash{ 0%{ background:rgba(199,162,72,.45); } 100%{ background:transparent; } }
+  .runner-writeup{ font-size:11px; color:var(--chalk); opacity:0.85; line-height:1.4; padding-top:2px; }
+
+  .status-bar{
+    text-align:center; font-family:'IBM Plex Mono', monospace; font-size:11px;
+    color: var(--muted); margin-top:4px;
+  }
+  .chart-wrap{ overflow-x:auto; }
+  .pl-hero{ text-align:center; margin-bottom:10px; }
+  .pl-hero-lbl{ font-family:'Barlow Condensed', sans-serif; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+  .pl-hero-val{ font-family:'IBM Plex Mono', monospace; font-size:38px; font-weight:700; line-height:1.1; }
+  .pl-hero-val.pos{ color:var(--win); } .pl-hero-val.neg{ color:var(--loss); }
+  .chart-tooltip{ min-height:16px; font-size:12px; color:var(--chalk); text-align:center; margin-top:4px; opacity:0; transition:opacity .15s; font-family:'IBM Plex Mono', monospace; }
+  button.small{
+    background: transparent; border:1px solid var(--brass-dim); color: var(--brass);
+    font-family:'IBM Plex Sans', sans-serif; font-size:13px; font-weight:600;
+    padding:8px 14px; border-radius:8px; cursor:pointer;
+  }
+  button.small:active{ background: rgba(199,162,72,0.12); }
+  .status-msg{ font-size:11px; color: var(--muted); margin-top:6px; }
+  .status-msg.error{ color: var(--loss); }
+  .status-msg.ok{ color: var(--win); }
+  .img-modal{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:1000;
+    align-items:center; justify-content:center; padding:20px; box-sizing:border-box;
+  }
+  .img-modal.open{ display:flex; }
+  .img-modal img{ max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 0 30px rgba(0,0,0,0.5); }
+  .slip-thumb.slip-open, a.slip-open{ cursor:pointer; }
+
+  td.profile-link{ cursor:pointer; text-decoration:underline; text-decoration-color:var(--brass-dim); text-underline-offset:3px; }
+  td.profile-link:active{ color:var(--brass); }
+
+  .profile-modal{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000;
+    align-items:flex-end; justify-content:center;
+  }
+  .profile-modal.open{ display:flex; }
+  .profile-sheet{
+    width:100%; max-width:720px; max-height:88vh; overflow-y:auto;
+    background:linear-gradient(165deg, var(--felt-3), var(--felt)); border:1px solid var(--line);
+    border-radius:18px 18px 0 0; padding:20px 18px calc(20px + env(safe-area-inset-bottom, 0));
+    box-shadow:0 -10px 40px rgba(0,0,0,.5);
+  }
+  .profile-close{
+    display:block; margin:0 0 12px auto; background:none; border:none; color:var(--muted);
+    font-size:22px; line-height:1; cursor:pointer; padding:4px 8px;
+  }
+  .profile-header{ text-align:center; margin-bottom:18px; }
+  .profile-header h2{
+    font-family:'Barlow Condensed', sans-serif; font-size:26px; font-weight:700; letter-spacing:1px;
+    color:var(--brass-light); margin:0; text-shadow:0 0 18px rgba(199,162,72,.3);
+  }
+  .profile-badges{ display:flex; justify-content:center; gap:14px; margin-top:14px; flex-wrap:wrap; }
+  .profile-badge{ display:flex; flex-direction:column; align-items:center; gap:5px; width:76px; cursor:pointer; }
+  .profile-badge:active{ transform:scale(0.94); }
+  .profile-badge-label{ font-size:9px; color:var(--muted); text-align:center; line-height:1.3; }
+  .badge-info-bubble{
+    margin-top:12px; padding:11px 14px; background:rgba(0,0,0,.3); border:1px solid var(--brass-dim);
+    border-radius:10px; font-size:12px; color:var(--chalk); text-align:center; line-height:1.4;
+  }
+  .badge-info-bubble b{
+    display:block; margin-bottom:4px; font-family:'Barlow Condensed', sans-serif; letter-spacing:.5px;
+    text-transform:uppercase; font-size:11px; color:var(--brass-light);
+  }
+  .profile-stat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .rules-body{ font-size:13px; line-height:1.55; color:var(--chalk); }
+  .rules-body h3{ font-family:'Barlow Condensed', sans-serif; font-size:14px; letter-spacing:.5px; text-transform:uppercase; color:var(--brass-light); margin:18px 0 6px; }
+  .rules-body h3:first-child{ margin-top:0; }
+  .rules-body p{ margin:0 0 8px; color:var(--chalk); opacity:.92; }
+  .profile-stat-cell{ background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:10px; padding:12px; text-align:center; }
+  .profile-stat-cell .lbl{ display:block; font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; }
+  .profile-stat-cell .val{ font-family:'IBM Plex Mono', monospace; font-size:18px; font-weight:700; color:var(--chalk); }
+  .profile-stat-cell.wide{ grid-column:1 / -1; display:flex; align-items:center; justify-content:space-around; text-align:center; padding:12px 8px; }
+  .profile-stat-cell.wide .profile-stat-sub{ display:flex; flex-direction:column; align-items:center; }
+  .profile-stat-cell .val.pos{ color:var(--win); }
+  .profile-stat-cell .val.neg{ color:var(--loss); }
+  .prize-split-row{ display:flex; gap:8px; margin-top:12px; }
+  .prize-split-cell{ flex:1; background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:9px; padding:9px 4px; text-align:center; }
+  .prize-split-cell .lbl{ display:block; font-size:8.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px; }
+  .prize-split-cell .val{ display:block; font-family:'IBM Plex Mono', monospace; font-size:14px; font-weight:700; color:var(--brass-light); }
+
+  .chart-dot{ transition: r .1s; }
+  .chart-hit:active + .chart-dot, .chart-hit:hover ~ .chart-dot{ r:4; }
+  .chart-wrap svg{ display:block; }
+  .empty{ text-align:center; padding:20px 10px; color:var(--muted); font-family:'IBM Plex Mono', monospace; font-size:12px; }
+  .empty-state{ text-align:center; padding:30px 16px; }
+  .empty-state-icon{ font-size:34px; margin-bottom:10px; opacity:.85; filter:drop-shadow(0 0 12px rgba(203,177,102,.2)); }
+  .empty-state-msg{ font-family:'IBM Plex Sans', sans-serif; font-size:13px; color:var(--muted); line-height:1.5; max-width:280px; margin:0 auto; }
+  .empty-state-cta{
+    display:inline-block; margin-top:14px; font-family:'Barlow Condensed', sans-serif; font-size:11px;
+    letter-spacing:1px; text-transform:uppercase; font-weight:700; color:var(--brass-light);
+    border:1px solid var(--brass-dim); border-radius:999px; padding:7px 16px;
+  }
+  .hint{ font-size:11px; color: var(--muted); line-height:1.5; }
+
+  .auth-gate{
+    position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;
+    background-color: var(--ink);
+    background-image: radial-gradient(ellipse at center, rgba(203,177,102,.10) 0%, transparent 70%);
+    overflow:hidden;
+  }
+  .auth-gate::before{
+    content:""; position:absolute; inset:0;
+    background: url('/banner.png') center center / 55% no-repeat;
+    opacity:.06; filter:blur(1.5px); pointer-events:none;
+  }
+  .auth-box{
+    position:relative; z-index:1; width:100%; max-width:360px; border-radius:16px; padding:30px 24px;
+    background: linear-gradient(165deg, #123626 0%, #0B2B22 65%, #0A241C 100%);
+    border:1px solid var(--brass);
+    box-shadow: 0 0 34px rgba(203,177,102,.16), 0 20px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .auth-logo{ font-family:'Barlow Condensed', sans-serif; font-weight:700; letter-spacing:3px; font-size:22px; color:var(--brass); text-align:center; margin-bottom:18px; }
+  .auth-logo-icon{ display:block; max-width:170px; width:64%; height:auto; margin:0 auto 6px; filter: drop-shadow(0 0 20px rgba(199,162,72,.35)); }
+  .auth-title{
+    text-align:center; font-family:'Barlow Condensed', sans-serif; font-weight:700; letter-spacing:5px;
+    font-size:33px; margin:2px 0 3px;
+    background: linear-gradient(155deg, var(--brass-light) 10%, var(--brass) 55%, #9c8248 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:var(--brass);
+  }
+  .auth-tagline{
+    text-align:center; font-family:'Barlow Condensed', sans-serif; font-size:10px; letter-spacing:4px;
+    text-transform:uppercase; color:var(--muted); margin-bottom:24px;
+  }
+  .auth-tabs{ display:flex; gap:0; margin-bottom:22px; border-bottom:1px solid var(--line); }
+  .auth-tab{
+    flex:1; font-family:'Barlow Condensed', sans-serif; font-size:14px; letter-spacing:1.5px; font-weight:700;
+    text-transform:uppercase; padding:0 0 11px; border:none; border-bottom:2px solid transparent;
+    background:transparent; color:var(--muted); cursor:pointer; margin-bottom:-1px; transition:color .15s;
+  }
+  .auth-tab.active{ border-bottom-color:var(--brass); color:var(--brass-light); }
+  .auth-box label.field{ display:flex; flex-direction:column; gap:5px; font-size:11.5px; font-weight:600; color:#c3cfc8; font-family:'IBM Plex Mono', monospace; text-transform:uppercase; letter-spacing:.5px; margin-bottom:12px; }
+  .auth-box input[type=text], .auth-box input[type=password], .auth-box input[type=email]{
+    background:#0E1F17; color:var(--chalk); border:1px solid rgba(239,234,216,.28); border-radius:8px;
+    font-family:'IBM Plex Mono', monospace; font-size:13px; padding:11px 12px 11px 38px; width:100%;
+  }
+  .auth-box input[type=text]:focus, .auth-box input[type=password]:focus, .auth-box input[type=email]:focus{
+    outline:none; border-color:var(--brass); box-shadow:0 0 0 2px rgba(203,177,102,.25);
+  }
+  .auth-field-wrap{ position:relative; }
+  .auth-field-icon{
+    position:absolute; left:11px; top:50%; transform:translateY(-50%);
+    width:16px; height:16px; opacity:.6; pointer-events:none;
+  }
+  .auth-field-wrap input{ padding-right:38px; }
+  #authPwToggle{
+    position:absolute; right:9px; top:50%; transform:translateY(-50%);
+    width:auto; height:auto; margin:0;
+    background:none; border:none; padding:4px; cursor:pointer; opacity:.6; line-height:0;
+  }
+  #authPwToggle:hover{ opacity:1; }
+  .auth-remember-row{
+    display:flex; align-items:center; gap:8px; margin:2px 0 16px; cursor:pointer;
+    font-family:'IBM Plex Sans', sans-serif; font-size:12.5px; color:var(--muted);
+  }
+  .auth-remember-row input[type=checkbox]{
+    width:16px; height:16px; accent-color:var(--brass); cursor:pointer; margin:0;
+  }
+  .auth-box button{ width:100%; margin-top:4px; }
+  #authSubmitBtn{ font-family:'Barlow Condensed', sans-serif; font-size:14px; letter-spacing:1.5px; font-weight:700; text-transform:uppercase; padding:13px 16px; border-radius:8px; border:1px solid var(--brass); background:linear-gradient(165deg, #dab868, var(--brass) 60%); box-shadow:0 4px 14px rgba(199,162,72,.25); color:#151007; cursor:pointer; }
+  #authSubmitBtn:disabled{ opacity:.4; cursor:default; }
+  #authSignOutBtn{ font-family:'Barlow Condensed', sans-serif; font-size:13px; letter-spacing:1px; font-weight:700; text-transform:uppercase; padding:11px 16px; border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--chalk); cursor:pointer; }
+.guest-watermark{
+  position:fixed; inset:0; z-index:9999; pointer-events:none;
+  display:flex; flex-wrap:wrap; align-content:flex-start; justify-content:center;
+  overflow:hidden; opacity:.07;
+}
+.guest-watermark span{
+  display:block; width:60%; text-align:center; transform:rotate(-28deg);
+  font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:700;
+  color:var(--chalk); white-space:nowrap; margin:34px 0;
+}
+.guest-no-select{
+  -webkit-user-select:none; -moz-user-select:none; user-select:none;
+  -webkit-touch-callout:none;
+}
+.app-footer{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  margin:18px 0 4px; padding:10px 4px 4px; opacity:.55;
+  border-top:1px solid var(--line); font-size:10px; color:var(--muted);
+  font-family:'IBM Plex Mono', monospace; flex-wrap:wrap;
+}
+.sync-dot{
+  display:inline-block; width:6px; height:6px; border-radius:50%; flex-shrink:0;
+  background:var(--win);
+}
+.sync-dot.amber{ background:#E8A15C; }
+.sync-dot.red{ background:var(--loss); }
+.health-pill{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 9px; border-radius:20px; font-size:10px; font-weight:700;
+  letter-spacing:.3px; text-transform:uppercase; cursor:pointer;
+  border:1px solid var(--line); background:rgba(0,0,0,.15);
+}
+.health-pill.app-footer-health{
+  padding:1px 7px; font-size:9px; margin-left:2px; background:none; border:none;
+}
+.health-pill.green{ color:var(--win); border-color:rgba(111,169,138,.4); }
+.health-pill.amber{ color:#E8A15C; border-color:rgba(232,161,92,.4); }
+.health-pill.red{ color:var(--loss); border-color:rgba(217,110,110,.4); }
+.changelog-banner{ font-size:12.5px; color:var(--chalk); }
+.changelog-banner ul{ margin:0 0 12px; padding-left:18px; color:var(--muted); }
+.changelog-banner li{ margin-bottom:4px; }
+.cl-date-pill{
+  font-family:'IBM Plex Mono', monospace; font-weight:400; text-transform:none; letter-spacing:0;
+  font-size:10px; color:var(--muted); background:rgba(0,0,0,.15); border:1px solid var(--line);
+  border-radius:999px; padding:3px 10px; white-space:nowrap;
+}
+.changelog-banner button{
+  background:var(--brass); border:none; border-radius:999px; padding:8px 20px;
+  color:#0E1A16; font-size:12px; font-weight:700; cursor:pointer;
+  font-family:'Barlow Condensed', sans-serif; letter-spacing:1px; text-transform:uppercase;
+}
+
+/* ---- Monthly Casino Pot panel ---- */
+.casino-pot-glow{
+  position:relative; text-align:center; padding:6px 0 2px;
+}
+.casino-pot-total{
+  font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:38px;
+  color:var(--brass); text-shadow:0 0 22px rgba(199,162,72,.5);
+  letter-spacing:.5px; line-height:1.1;
+}
+.casino-pot-sub{ font-size:11.5px; color:var(--muted); margin-top:4px; }
+.casino-pot-split-bar{
+  display:flex; height:6px; border-radius:4px; overflow:hidden; margin:12px 0 4px;
+  background:rgba(0,0,0,.25);
+}
+.casino-pot-split-bar span{ display:block; height:100%; }
+.casino-pot-split-bar .cp-share{ background:linear-gradient(90deg, var(--brass-dim), var(--brass)); width:60%; }
+.casino-pot-split-bar .cp-jackpot{ background:linear-gradient(90deg, #E8A15C, #d97b3f); width:40%; }
+.casino-pot-split-legend{
+  display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted);
+  margin-bottom:4px;
+}
+.casino-pot-countdown{
+  text-align:center; margin-top:10px; font-size:11.5px; color:var(--muted);
+}
+.casino-pot-countdown b{ color:var(--brass-light); font-weight:700; }
+.casino-pot-me-line{ font-size:11.5px; color:var(--muted); text-align:center; margin-bottom:4px; }
+.casino-pot-me-line b{ color:var(--brass-light); }
+.casino-pot-me-line.eligible{ color:var(--win); }
+.casino-floor-spotlight{
+  display:flex; align-items:center; gap:6px; justify-content:center;
+  font-size:11.5px; color:var(--muted); margin:-2px 0 10px; text-align:center;
+}
+.casino-floor-spotlight b{ color:var(--brass-light); }
+.casino-ticker{
+  display:flex; align-items:center; gap:8px; padding:9px 14px; margin-bottom:10px;
+  background:linear-gradient(90deg, rgba(203,177,102,.10), rgba(203,177,102,.02));
+  border:1px solid var(--brass-dim); border-radius:10px; overflow:hidden;
+}
+.casino-ticker-dot{
+  width:7px; height:7px; border-radius:50%; background:var(--loss); flex-shrink:0;
+  box-shadow:0 0 6px rgba(193,96,74,.7); animation:tickerPulse 1.6s ease-in-out infinite;
+}
+@keyframes tickerPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+.casino-ticker-text{ font-size:12px; color:var(--chalk); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.casino-ticker-text b{ color:var(--brass-light); }
+.casino-panel-h2{ justify-content:center; text-align:center; }
+.xp-log-row{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding:7px 0; border-bottom:1px solid var(--line); font-size:12px;
+}
+.xp-log-row .xp-log-who{ color:var(--brass-light); font-weight:600; flex-shrink:0; }
+.xp-log-row .xp-log-reason{ color:var(--muted); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.xp-log-row .xp-log-amt{ font-weight:700; flex-shrink:0; font-family:'IBM Plex Mono', monospace; }
+.casino-floor-toggle{ display:flex; justify-content:center; gap:8px; margin-bottom:10px; }
+.casino-floor-scroll{
+  max-height:280px; overflow-y:auto; -webkit-overflow-scrolling:touch;
+}
+.xp-log-row.xp-log-big-win{
+  background:linear-gradient(90deg, rgba(199,162,72,.14), transparent);
+  border-radius:6px; margin:0 -6px; padding:7px 6px; border-bottom:1px solid rgba(199,162,72,.25);
+}
+.xp-log-row.xp-log-big-win .xp-log-who{ color:var(--brass); }
+.xp-log-row.xp-log-big-win .xp-log-amt{ text-shadow:0 0 10px rgba(199,162,72,.5); }
+.xp-log-big-win-badge{ font-size:10px; margin-right:3px; }
+.xp-log-clickable{ cursor:pointer; }
+.xp-log-clickable:active{ opacity:.75; }
+
+/* ---- Big Win snapshot modal ---- */
+.big-win-sheet{ position:relative; overflow:hidden; padding:30px 22px; }
+.big-win-sheet::before{ content:''; position:absolute; inset:0; background:radial-gradient(circle at 50% -10%, rgba(255,214,120,.18), transparent 60%); pointer-events:none; }
+.win-badge{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:13px; letter-spacing:2.5px; text-transform:uppercase; color:var(--brass); margin-bottom:8px; position:relative; }
+.win-amount{
+  font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:44px;
+  background:linear-gradient(180deg, var(--brass-light), var(--brass)); -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,.4)); margin-bottom:6px; position:relative;
+}
+.win-meta{ font-size:12.5px; color:var(--muted); margin-bottom:2px; position:relative; }
+.win-meta b{ color:var(--chalk); }
+.win-close-btn{
+  margin-top:18px; background:linear-gradient(180deg, var(--brass-light), var(--brass)); border:none; border-radius:999px;
+  padding:9px 22px; color:#0E1A16; font-weight:700; font-family:'Barlow Condensed', sans-serif; letter-spacing:1px;
+  text-transform:uppercase; cursor:pointer; position:relative;
+}
+.weekly-reminder-item{ display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); align-items:flex-start; }
+.weekly-reminder-item:last-child{ border-bottom:none; }
+.weekly-reminder-icon{ font-size:17px; flex-shrink:0; line-height:1.3; }
+.weekly-reminder-text{ flex:1; font-size:12.5px; line-height:1.4; }
+.weekly-reminder-text b{ color:var(--brass-light); }
+.weekly-reminder-check-row{
+  display:flex; align-items:center; gap:7px; padding:5px 0 5px 22px; font-size:12px; cursor:pointer;
+}
+.weekly-reminder-check-row input{ accent-color:var(--brass); width:14px; height:14px; flex-shrink:0; }
+.weekly-reminder-check-row.acked{ color:var(--muted); text-decoration:line-through; }
+.api-tracker-row{
+  display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+  padding:7px 0; border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+.api-tracker-row:last-child{ border-bottom:none; }
+.api-tracker-name{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--chalk); word-break:break-word; }
+.api-tracker-meta{ font-size:11px; color:var(--muted); white-space:nowrap; flex-shrink:0; }
+.api-tracker-meta b{ color:var(--brass-light); }
+
+/* ---- Syndy floating button ---- */
+.syndy-fab{
+  position:fixed; right:14px; bottom:calc(72px + env(safe-area-inset-bottom, 0px)); z-index:500;
+  width:56px; height:56px; border-radius:50%; border:none; padding:0; cursor:pointer;
+  background:radial-gradient(circle at 35% 30%, var(--brass-light), var(--brass) 60%, var(--brass-dim));
+  box-shadow:0 6px 18px rgba(0,0,0,.5), 0 0 0 3px rgba(203,177,102,.25);
+  display:flex; align-items:center; justify-content:center;
+}
+.syndy-fab:active{ transform:scale(.94); }
+.syndy-fab img{ width:42px; height:42px; border-radius:50%; }
+.syndy-fab-badge{
+  position:absolute; top:-1px; right:-1px; width:14px; height:14px; border-radius:50%;
+  background:var(--loss); border:2px solid var(--ink); box-shadow:0 0 6px rgba(193,96,74,.8);
+}
+
+/* ---- Syndy chat panel ---- */
+.syndy-chat-sheet{ padding:0; display:flex; flex-direction:column; height:min(72vh, 560px); overflow:hidden; position:relative; }
+.syndy-chat-header{
+  display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(255,214,120,.08), transparent); flex-shrink:0;
+}
+.syndy-chat-header img{ width:34px; height:34px; border-radius:50%; }
+.syndy-chat-who{ flex:1; }
+.syndy-chat-name{ font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:15px; color:var(--brass-light); letter-spacing:.3px; }
+.syndy-chat-status{ font-size:10px; color:var(--win); }
+.syndy-chat-status::before{ content:'●'; margin-right:4px; font-size:8px; }
+.syndy-chat-close{ color:var(--muted); font-size:18px; cursor:pointer; padding:4px; }
+.syndy-chat-body{
+  flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; -webkit-overflow-scrolling:touch;
+  position:relative;
+  background-image:url('syndy-chat-bg.png');
+  background-repeat:no-repeat; background-position:center 58%; background-size:300px auto;
+}
+.syndy-chat-body::before{
+  content:''; position:absolute; inset:0; background:var(--felt-2); opacity:.78; pointer-events:none; z-index:0;
+}
+.syndy-chat-body > *{ position:relative; z-index:1; }
+.syndy-msg{ max-width:82%; padding:9px 12px; border-radius:14px; font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
+.syndy-chat-body{ overflow-x:hidden; }
+.syndy-msg.syndy{ align-self:flex-start; background:var(--felt); border:1px solid var(--brass-dim); border-bottom-left-radius:4px; white-space:normal; }
+.syndy-msg.syndy div{ margin-bottom:6px; }
+.syndy-msg.syndy div:last-child{ margin-bottom:0; }
+.syndy-msg.syndy b{ color:var(--brass-light); }
+.syndy-msg-list{ margin:2px 0 8px; padding-left:20px; }
+.syndy-msg-list li{ margin-bottom:3px; }
+.syndy-msg-table-wrap{ overflow-x:auto; margin:4px 0 8px; max-width:100%; }
+.syndy-msg-table{ border-collapse:collapse; font-size:11.5px; white-space:nowrap; }
+.syndy-msg-table th, .syndy-msg-table td{ padding:5px 8px; border-bottom:1px solid var(--line); text-align:left; }
+.syndy-msg-table th{ color:var(--brass-light); font-weight:700; border-bottom:1px solid var(--brass-dim); }
+.syndy-msg.user{ align-self:flex-end; background:linear-gradient(165deg, var(--brass-light), var(--brass)); color:#0E1A16; font-weight:600; border-bottom-right-radius:4px; }
+.syndy-msg.error{ align-self:center; color:var(--loss); font-size:11.5px; background:none; border:none; }
+.syndy-msg.typing{ align-self:flex-start; background:var(--felt); border:1px solid var(--brass-dim); border-bottom-left-radius:4px; color:var(--muted); font-style:italic; }
+.syndy-chat-input-row{ display:flex; gap:8px; padding:10px; border-top:1px solid var(--line); flex-shrink:0; }
+.syndy-chat-input-row input{
+  flex:1; background:var(--felt); border:1px solid var(--line); border-radius:999px; padding:10px 14px;
+  color:var(--chalk); font-size:13px;
+}
+.syndy-chat-send{
+  width:38px; height:38px; border-radius:50%; border:none; background:linear-gradient(165deg, var(--brass-light), var(--brass));
+  display:flex; align-items:center; justify-content:center; color:#0E1A16; font-weight:700; cursor:pointer; flex-shrink:0;
+}
+.syndy-chat-send:disabled{ opacity:.5; }
+
+/* ---- Pot panel: collapsible details ---- */
+.casino-pot-details-toggle{
+  display:block; width:100%; text-align:center; background:none; border:none; color:var(--brass);
+  font-size:11.5px; font-weight:700; cursor:pointer; padding:10px 0 0; letter-spacing:.5px;
+  font-family:'Barlow Condensed', sans-serif; text-transform:uppercase;
+}
+.casino-pot-details{ display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.casino-pot-details.open{ display:block; animation:potDetailsOpen .2s ease; }
+@keyframes potDetailsOpen{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:translateY(0); } }
+
+/* ---- Members panel: Leaderboard / Floor tabs ---- */
+.casino-social-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+.casino-social-tab{
+  flex:1; text-align:center; padding:8px; border-radius:8px; font-size:12.5px; font-weight:700;
+  font-family:'Barlow Condensed', sans-serif; letter-spacing:.5px; text-transform:uppercase;
+  background:rgba(0,0,0,.15); color:var(--muted); border:1px solid var(--line); cursor:pointer;
+  transition:background .15s, color .15s;
+}
+.casino-social-tab.active{
+  background:linear-gradient(180deg, var(--brass-light), var(--brass)); color:#0E1A16; border-color:var(--brass);
+  box-shadow:0 2px 10px rgba(199,162,72,.3);
+}
+
+/* ---- Jackpot draw / celebration ---- */
+.pot-celebration-sheet{ position:relative; background:none; border:none; box-shadow:none; padding:0 18px calc(20px + env(safe-area-inset-bottom, 0)); }
+.pot-celebration-sheet .profile-close{ margin-bottom:8px; }
+
+/* ---- Cabinet (slot machine housing the reel) ---- */
+.pot-cabinet{
+  position:relative; margin:0 auto; max-width:320px;
+  border-radius:20px; padding:16px 16px 20px;
+  background:linear-gradient(160deg, var(--brass-light), var(--brass) 35%, #4a3a18 68%, var(--brass-light));
+  box-shadow:0 24px 60px rgba(0,0,0,.6), inset 0 2px 4px rgba(255,255,255,.3), inset 0 -6px 12px rgba(0,0,0,.5);
+}
+.pot-cabinet::before{
+  content:''; position:absolute; inset:6px; border-radius:14px; pointer-events:none;
+  background:repeating-linear-gradient(115deg, rgba(255,255,255,.04) 0px, rgba(255,255,255,.04) 1px, transparent 1px, transparent 4px);
+  opacity:.4;
+}
+.pot-cabinet-marquee{
+  display:flex; align-items:center; justify-content:center; gap:9px;
+  font-family:'Barlow Condensed', sans-serif; font-weight:600; font-size:12px;
+  letter-spacing:3px; text-transform:uppercase; color:#3a2c0c;
+  text-shadow:0 1px 0 rgba(255,255,255,.3); margin-bottom:10px; position:relative; z-index:1;
+}
+.pot-marquee-lights{ display:flex; gap:6px; }
+.pot-marquee-lights span{
+  width:4px; height:4px; border-radius:50%; background:#fff3c9;
+  box-shadow:0 0 4px 1px rgba(255,224,130,.75);
+  animation: potMarqueeBlink 1.8s ease-in-out infinite;
+}
+.pot-marquee-lights span:nth-child(2n){ animation-delay:.3s; }
+.pot-marquee-lights span:nth-child(3n){ animation-delay:.6s; }
+@keyframes potMarqueeBlink{ 0%,100%{ opacity:.9; } 50%{ opacity:.35; } }
+.pot-reel-housing{
+  position:relative; z-index:1; border-radius:13px; padding:16px 10px;
+  background:#0a1a12; box-shadow:inset 0 0 24px rgba(0,0,0,.85), inset 0 4px 8px rgba(0,0,0,.7);
+  display:flex; justify-content:center;
+}
+.pot-reel-window{
+  position:relative; height:74px; width:184px; overflow:hidden; border-radius:9px;
+  background:linear-gradient(180deg, #0d2318, #1a4229 50%, #0d2318);
+  box-shadow:inset 0 0 14px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,214,120,.18);
+  transition:box-shadow .3s ease;
+}
+.pot-reel-window.pot-reel-landed{ animation:potReelLandFlash .5s ease 3; }
+@keyframes potReelLandFlash{
+  0%,100%{ box-shadow:inset 0 0 14px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,214,120,.18); }
+  50%{ box-shadow:inset 0 0 14px rgba(0,0,0,.8), inset 0 0 0 2px var(--brass-light), 0 0 22px rgba(255,214,120,.75); }
+}
+.pot-reel-window::before, .pot-reel-window::after{
+  content:''; position:absolute; left:0; right:0; height:20px; z-index:2; pointer-events:none;
+}
+.pot-reel-window::before{ top:0; background:linear-gradient(180deg, #0d2318, transparent); }
+.pot-reel-window::after{ bottom:0; background:linear-gradient(0deg, #0d2318, transparent); }
+.pot-payline{
+  position:absolute; left:8px; right:8px; top:50%; height:1px; margin-top:-.5px;
+  background:linear-gradient(90deg, transparent, rgba(199,162,72,.35), transparent);
+  pointer-events:none;
+}
+.pot-reel-track{
+  display:flex; flex-direction:column; align-items:center;
+  transition: transform 3.2s cubic-bezier(.1,.7,.15,1);
+}
+.pot-reel-track div{
+  height:74px; line-height:74px; width:184px; text-align:center; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; padding:0 8px;
+  font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:21px; letter-spacing:.5px;
+  color:var(--chalk); text-shadow:0 2px 3px rgba(0,0,0,.5);
+}
+.pot-reel-track div.pot-reel-winner{
+  color:var(--brass-light); text-shadow:0 0 16px rgba(255,224,130,.85), 0 2px 3px rgba(0,0,0,.5);
+}
+.pot-cabinet-foot{
+  display:flex; justify-content:space-between; align-items:center; margin-top:12px;
+  font-family:'IBM Plex Mono', monospace; font-size:10px; color:#3a2c0c; position:relative; z-index:1;
+}
+.pot-cabinet-lamp{
+  width:8px; height:8px; border-radius:50%; background:#ffdb7a; box-shadow:0 0 8px 2px rgba(255,219,122,.9);
+}
+.pot-cabinet-caption{
+  text-align:center; font-family:'IBM Plex Mono', monospace; font-size:9.5px;
+  letter-spacing:1px; text-transform:uppercase; color:#3a2c0c; opacity:.75; margin-top:9px; position:relative; z-index:1;
+}
+
+/* ---- Result card (below the cabinet) ---- */
+.pot-result-card{
+  width:min(320px, 100%); margin:16px auto 0; text-align:center; position:relative;
+  border-radius:16px; padding:22px 20px 26px;
+  background:linear-gradient(165deg, var(--felt-3), var(--felt-2));
+  border:1px solid var(--brass-dim); box-shadow:0 16px 40px rgba(0,0,0,.5); overflow:hidden;
+}
+.pot-confetti-layer{ position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:2; }
+.pot-confetti-piece{
+  position:absolute; top:-12px; height:14px; opacity:.9;
+  animation: potConfettiFall linear forwards;
+}
+@keyframes potConfettiFall{
+  0%{ transform:translateY(0) rotate(0deg); opacity:1; }
+  100%{ transform:translateY(460px) rotate(560deg); opacity:0; }
+}
+.pot-winner-banner{
+  font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:14px;
+  letter-spacing:3px; text-transform:uppercase; color:var(--brass); margin:12px 0 4px;
+  opacity:0; animation: potFadeUp .5s ease forwards; animation-delay:3.35s;
+}
+.pot-winner-name{
+  font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:clamp(22px, 7vw, 28px); line-height:1.1;
+  background:linear-gradient(180deg, var(--brass-light), var(--brass));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.4)); margin-bottom:4px; word-break:break-word;
+  opacity:0; animation: potFadeUp .5s ease forwards; animation-delay:3.45s;
+}
+.pot-winner-amount{
+  display:inline-flex; align-items:center; gap:6px;
+  font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:15px;
+  color:#0E1A16; background:linear-gradient(180deg, var(--brass-light), var(--brass));
+  padding:4px 15px; border-radius:999px; margin-top:2px; box-shadow:0 3px 10px rgba(199,162,72,.3);
+  opacity:0; animation: potFadeUp .5s ease forwards; animation-delay:3.55s;
+}
+@keyframes potFadeUp{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
+.pot-share-note{
+  margin-top:12px; font-size:12px; color:var(--win);
+  opacity:0; animation: potFadeUp .5s ease forwards; animation-delay:3.65s;
+}

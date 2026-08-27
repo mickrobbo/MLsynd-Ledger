@@ -1,0 +1,7 @@
+{
+  "version": "2026-08-24.1",
+  "date": "2026-08-27",
+  "changes": [
+    "Redesigned bottom nav: Cash and Slips are now sub-tabs under Home (Overview/Cash/Slips), and Casino got a new elevated gold coin button in the middle. No data or feature changes \u2014 same tabs, new layout."
+  ]
+}
