@@ -492,10 +492,10 @@
 
       <div class="panel">
         <h2>Bet slips</h2>
-        <div class="hint">Upload a screenshot of the lotto ticket or bet slip each week — or paste a link instead. These show up on the dashboard's Slips tab too, and you can remove one any time to add a new one.</div>
+        <div class="hint">Upload a screenshot of the lotto ticket or bet slip each week — or paste a link instead. Select more than one at once if a bet needs a few (cropped sections, multiple tickets, etc) — they'll all get added together. These show up on the dashboard's Slips tab too, and you can remove one any time to add a new one.</div>
         <div class="row" style="margin-top:0;">
-          <input type="file" id="slipFileInput" accept="image/*" style="display:none;">
-          <button id="slipUploadBtn" class="small">📷 Upload screenshot</button>
+          <input type="file" id="slipFileInput" accept="image/*" multiple style="display:none;">
+          <button id="slipUploadBtn" class="small">📷 Upload screenshot(s)</button>
         </div>
         <div id="slipUploadStatus" class="status-msg"></div>
         <div class="row" style="margin-top:0;">
@@ -643,6 +643,11 @@
       <div class="panel">
         <h2>Admin — approvals</h2>
         <div class="hint">People who've signed up but aren't approved yet. Choose their access level to approve them.</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <button type="button" id="copyTippingInviteBtn" class="small">🏉 Copy Tipping invite link</button>
+          <span class="status-msg" id="copyTippingInviteStatus"></span>
+        </div>
+        <div class="hint" style="margin-bottom:10px;">A permanent link (doesn't expire, reusable by anyone) that opens the signup form with a "you're joining Tipping" banner and tags their request so it shows below — approval and role are still entirely up to you, this is just a hint.</div>
         <div id="pendingUsersArea"><div class="empty">Loading…</div></div>
       </div>
       <div class="panel">
@@ -852,6 +857,17 @@ async function authedFetch(path, options){
 }
 
 // ---- Admin: pending approvals ----
+document.getElementById('copyTippingInviteBtn').addEventListener('click', async () => {
+  const url = 'https://mlsynddash.netlify.app/?invite=tipping';
+  const statusEl = document.getElementById('copyTippingInviteStatus');
+  try{
+    await navigator.clipboard.writeText(url);
+    statusEl.textContent = 'Copied!';
+  }catch(e){
+    statusEl.textContent = url; // clipboard API blocked (older browser/permissions) — show it directly so it can still be copied by hand
+  }
+  setTimeout(() => { statusEl.textContent = ''; }, 4000);
+});
 async function renderPendingUsers(){
   const wrap = document.getElementById('pendingUsersArea');
   const approvedWrap = document.getElementById('approvedUsersArea');
@@ -871,12 +887,13 @@ async function renderPendingUsers(){
           <div class="pending-user-info">
             <div class="pending-user-name">${escapeHtml(u.name || '(no name)')}</div>
             <div class="pending-user-email">${escapeHtml(u.email || '')}</div>
+            ${u.requestedRole ? `<div class="hint" style="color:var(--brass); margin-top:2px;">🏉 Came via the Tipping invite link</div>` : ''}
           </div>
           <div class="pending-user-actions">
             <button data-approve-uid="${uid}" data-role="readonly" class="small secondary">Read-only</button>
-            <button data-approve-uid="${uid}" data-role="tipping" class="small secondary">Tipping only</button>
+            <button data-approve-uid="${uid}" data-role="tipping" class="small ${u.requestedRole === 'tipping' ? '' : 'secondary'}">Tipping only</button>
             <button data-approve-uid="${uid}" data-role="dashboard" class="small secondary">Dashboard only</button>
-            <button data-approve-uid="${uid}" data-role="full" class="small">Full access</button>
+            <button data-approve-uid="${uid}" data-role="full" class="small secondary">Full access</button>
             <button data-reject-uid="${uid}" class="small danger">Reject</button>
           </div>
         </div>`).join('');
@@ -1817,33 +1834,52 @@ document.getElementById('slipUploadBtn').addEventListener('click', () => {
 });
 
 document.getElementById('slipFileInput').addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
+  const files = e.target.files ? Array.from(e.target.files) : [];
   const status = document.getElementById('slipUploadStatus');
   const labelInput = document.getElementById('slipLabel');
-  if(!file) return;
-  status.className = 'status-msg';
-  status.textContent = 'Uploading…';
-  try{
-    const dataUrl = await compressImage(file);
-    if(dataUrl.length > 2_500_000){
-      throw new Error('Image still too large after compression — try a lower-res screenshot.');
+  if(files.length === 0) return;
+  const baseLabel = labelInput.value.trim();
+  if(!state.slips) state.slips = [];
+  let uploaded = 0;
+  let failed = 0;
+  // Sequential, not parallel — compressing several screenshots at once is
+  // real memory/CPU pressure on a phone browser, and this also lets the
+  // status line show honest per-file progress rather than one silent wait.
+  for(let i = 0; i < files.length; i++){
+    const file = files[i];
+    status.className = 'status-msg';
+    status.textContent = files.length > 1 ? `Uploading ${i + 1} of ${files.length}…` : 'Uploading…';
+    try{
+      const dataUrl = await compressImage(file);
+      if(dataUrl.length > 2_500_000){
+        throw new Error('too large after compression');
+      }
+      // One label typed covers the whole batch (they're usually all part
+      // of the same bet) — numbered so they're distinguishable in the
+      // list below rather than several identical-looking rows.
+      const label = baseLabel
+        ? (files.length > 1 ? `${baseLabel} (${i + 1} of ${files.length})` : baseLabel)
+        : (file.name || 'Bet slip');
+      state.slips.push({ label, url: dataUrl, addedAt: Date.now() });
+      uploaded++;
+    }catch(err){
+      failed++;
     }
-    if(!state.slips) state.slips = [];
-    state.slips.push({
-      label: labelInput.value.trim() || file.name || 'Bet slip',
-      url: dataUrl,
-      addedAt: Date.now()
-    });
-    labelInput.value = '';
-    status.className = 'status-msg ok';
-    status.textContent = 'Uploaded.';
-    showToast('Slip uploaded');
-    renderSlips();
-    saveState();
-  }catch(err){
-    status.className = 'status-msg error';
-    status.textContent = 'Upload failed: ' + err.message;
   }
+  labelInput.value = '';
+  if(failed === 0){
+    status.className = 'status-msg ok';
+    status.textContent = uploaded === 1 ? 'Uploaded.' : `Uploaded all ${uploaded}.`;
+    showToast(uploaded === 1 ? 'Slip uploaded' : `${uploaded} slips uploaded`);
+  } else if(uploaded > 0){
+    status.className = 'status-msg error';
+    status.textContent = `Uploaded ${uploaded}, but ${failed} failed (likely too large even after compression — try a lower-res screenshot for those).`;
+  } else {
+    status.className = 'status-msg error';
+    status.textContent = 'Upload failed — images still too large after compression, try lower-res screenshots.';
+  }
+  renderSlips();
+  saveState();
   e.target.value = '';
 });
 
