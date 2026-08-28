@@ -457,7 +457,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-board">
+    <div class="tab-panel" id="tab-betting">
       <div class="panel">
         <h2>Leaderboard</h2>
         <div class="row" style="margin-top:0;">
@@ -477,9 +477,7 @@
           <div id="historyArea"></div>
         </div>
       </div>
-    </div>
 
-    <div class="tab-panel" id="tab-report">
       <div class="panel">
         <h2>Weekly report</h2>
         <div class="row" style="margin-top:0;">
@@ -540,24 +538,6 @@
           <div id="duesXPBackpayStatus" class="status-msg" style="margin-top:6px;"></div>
         </div>
       </div>
-
-      <div class="panel">
-        <h2>Tipping Dues <span class="toggle" id="tippingDuesToggle">edit</span></h2>
-        <div id="tippingDuesEdit" style="display:none;">
-          <div class="hint">A separate, one-off fee for whoever wants to play the Tipping competition — completely independent of the $840 Board dues above, and works for genuinely Tipping-only accounts too (no Board membership needed). Same rule as Board dues: 1 Casino XP per $2 paid, real money only.</div>
-          <div style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-            <label style="font-size:12px; color:var(--muted); flex-shrink:0;">Default fee per person ($)</label>
-            <input type="number" id="tippingDuesDefaultFee" min="0" step="1" style="width:80px;" placeholder="TBD">
-            <button type="button" id="tippingDuesSaveDefaultBtn" style="flex-shrink:0;">Save</button>
-          </div>
-          <div class="hint" id="tippingDuesDefaultFeeStatus" style="margin-bottom:8px;"></div>
-          <div style="display:flex; gap:8px; margin-bottom:10px;">
-            <select id="tippingDuesAddSelect" style="flex:1;"><option value="">Add a participant…</option></select>
-            <button type="button" id="tippingDuesAddBtn">Add</button>
-          </div>
-          <div id="tippingDuesArea"></div>
-        </div>
-      </div>
     </div>
 
     <div class="tab-panel" id="tab-admin">
@@ -595,37 +575,6 @@
         </div>
         <div class="status-msg" id="backupStatus"></div>
         <div class="hint" id="lastBackupHint" style="margin-top:6px;"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Reset season</h2>
-        <div class="hint">Zeroes every member's stats, dues, and group financials back to a clean slate, and clears saved-week history. Use this if you're going to re-enter the season from Week 1 so the graph and totals build up correctly. Names and bet slips are kept.</div>
-        <button id="resetSeasonBtn" class="small danger">Reset season to zero</button>
-        <div class="status-msg" id="resetStatus"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Recalculate balances from history</h2>
-        <div class="hint">Rebuilds the bank total and every member's stats (wins/losses/legs/P&L) completely from scratch, by re-summing every saved week in history. Use this if a save/undo ever leaves numbers looking off — history is treated as the source of truth, so this fixes drift without touching your saved weeks themselves or dues owed. Safe to run — nothing here changes unless the numbers genuinely didn't match.</div>
-        <button id="recalcFromHistoryBtn" class="small secondary">Recalculate now</button>
-        <div class="status-msg" id="recalcStatus"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Fix a saved week</h2>
-        <div class="hint">For correcting an already-saved week's individual bet numbers directly — e.g. if a second bet for the same person that week wasn't captured correctly at the time. Recalculate above only re-sums what's already stored, so it can't fix a week where the wrong number was saved in the first place; this edits the actual saved entry, then automatically recalculates every member's totals from scratch afterward so the fix ripples through correctly.</div>
-        <select id="fixWeekSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a saved week…</option></select>
-        <div id="fixWeekEditor"></div>
-        <button id="fixWeekSaveBtn" class="small" style="margin-top:8px; display:none;">Save correction &amp; recalculate</button>
-        <div class="status-msg" id="fixWeekStatus"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Clear "missing groupEntries" health check warning</h2>
-        <div class="hint">For weeks where nobody had a group multi leg on purpose (not a data-loss bug) — the health check can't tell "genuinely nothing to record" apart from "field never got saved," so it warns on both. This sets those specific weeks' groupEntries to an empty (but present) record, which is enough to satisfy the check without inventing any leg data — nothing about anyone's stats or the bank changes.</div>
-        <div id="clearGroupWarnList" class="hint" style="margin-bottom:8px;"></div>
-        <button id="clearGroupWarnBtn" class="small secondary">Clear for all flagged weeks</button>
-        <div class="status-msg" id="clearGroupWarnStatus"></div>
       </div>
 
       <div class="panel">
@@ -668,9 +617,62 @@
           <div id="approvedUsersArea"><div class="empty">Loading…</div></div>
         </div>
       </div>
+
+      <div class="panel" style="background:rgba(0,0,0,.15); border-color:var(--brass-dim); text-align:center; padding:10px;">
+        <span style="font-size:11px; color:var(--brass); font-weight:700; letter-spacing:.5px; text-transform:uppercase;">⚠️ Maintenance &amp; Repair Tools</span>
+        <div class="hint" style="margin-top:4px; margin-bottom:0;">Not everyday actions — for fixing data that's drifted or gone missing. Everything below is safe to run when genuinely needed, but not something to reach for casually.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Reset season</h2>
+        <div class="hint">Zeroes every member's stats, dues, and group financials back to a clean slate, and clears saved-week history. Use this if you're going to re-enter the season from Week 1 so the graph and totals build up correctly. Names and bet slips are kept.</div>
+        <button id="resetSeasonBtn" class="small danger">Reset season to zero</button>
+        <div class="status-msg" id="resetStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Recalculate balances from history</h2>
+        <div class="hint">Rebuilds the bank total and every member's stats (wins/losses/legs/P&L) completely from scratch, by re-summing every saved week in history. Use this if a save/undo ever leaves numbers looking off — history is treated as the source of truth, so this fixes drift without touching your saved weeks themselves or dues owed. Safe to run — nothing here changes unless the numbers genuinely didn't match.</div>
+        <button id="recalcFromHistoryBtn" class="small secondary">Recalculate now</button>
+        <div class="status-msg" id="recalcStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Fix a saved week</h2>
+        <div class="hint">For correcting an already-saved week's individual bet numbers directly — e.g. if a second bet for the same person that week wasn't captured correctly at the time. Recalculate above only re-sums what's already stored, so it can't fix a week where the wrong number was saved in the first place; this edits the actual saved entry, then automatically recalculates every member's totals from scratch afterward so the fix ripples through correctly.</div>
+        <select id="fixWeekSelect" style="width:100%; margin-bottom:8px;"><option value="">Pick a saved week…</option></select>
+        <div id="fixWeekEditor"></div>
+        <button id="fixWeekSaveBtn" class="small" style="margin-top:8px; display:none;">Save correction &amp; recalculate</button>
+        <div class="status-msg" id="fixWeekStatus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Clear "missing groupEntries" health check warning</h2>
+        <div class="hint">For weeks where nobody had a group multi leg on purpose (not a data-loss bug) — the health check can't tell "genuinely nothing to record" apart from "field never got saved," so it warns on both. This sets those specific weeks' groupEntries to an empty (but present) record, which is enough to satisfy the check without inventing any leg data — nothing about anyone's stats or the bank changes.</div>
+        <div id="clearGroupWarnList" class="hint" style="margin-bottom:8px;"></div>
+        <button id="clearGroupWarnBtn" class="small secondary">Clear for all flagged weeks</button>
+        <div class="status-msg" id="clearGroupWarnStatus"></div>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-tippingadmin">
+      <div class="panel">
+        <h2>Tipping Dues <span class="toggle" id="tippingDuesToggle">edit</span></h2>
+        <div id="tippingDuesEdit" style="display:none;">
+          <div class="hint">A separate, one-off fee for whoever wants to play the Tipping competition — completely independent of the $840 Board dues, and works for genuinely Tipping-only accounts too (no Board membership needed). Same rule as Board dues: 1 Casino XP per $2 paid, real money only.</div>
+          <div style="display:flex; align-items:center; gap:8px; margin:10px 0;">
+            <label style="font-size:12px; color:var(--muted); flex-shrink:0;">Default fee per person ($)</label>
+            <input type="number" id="tippingDuesDefaultFee" min="0" step="1" style="width:80px;" placeholder="TBD">
+            <button type="button" id="tippingDuesSaveDefaultBtn" style="flex-shrink:0;">Save</button>
+          </div>
+          <div class="hint" id="tippingDuesDefaultFeeStatus" style="margin-bottom:8px;"></div>
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <select id="tippingDuesAddSelect" style="flex:1;"><option value="">Add a participant…</option></select>
+            <button type="button" id="tippingDuesAddBtn">Add</button>
+          </div>
+          <div id="tippingDuesArea"></div>
+        </div>
+      </div>
       <div class="panel">
         <h2>Tipping Squad</h2>
         <div class="hint">Everyone with tipping access, whether they want in or not — tap a name's button to add or remove them from the tipping squad specifically, separate from their app access.</div>
@@ -720,11 +722,10 @@
 
   <nav class="tabbar">
     <button class="tab-btn active" data-tab="entry"><span class="icon">✎</span>Entry</button>
-    <button class="tab-btn" data-tab="board"><span class="icon">🏆</span>Board</button>
-    <button class="tab-btn" data-tab="report"><span class="icon">📋</span>Report</button>
+    <button class="tab-btn" data-tab="betting"><span class="icon">🏆</span>Betting</button>
     <button class="tab-btn" data-tab="squad"><span class="icon">👥</span>Squad</button>
-    <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;"><span class="icon">🔑</span>Admin</button>
     <button class="tab-btn" data-tab="tippingadmin" id="tippingAdminTabBtn" style="display:none;"><span class="icon">🏉</span>Tipping</button>
+    <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;"><span class="icon">🔑</span>Admin</button>
   </nav>
 
 <script>
