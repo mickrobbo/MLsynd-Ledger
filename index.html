@@ -3464,18 +3464,37 @@ const LAST_BACKUP_KEY = 'mlsynd_last_backup_at';
 async function downloadBackup(){
   // Also grabs Tipping + user account data, not just the Ledger's own
   // state — if that extra fetch fails for any reason, still deliver a
-  // state-only backup rather than nothing at all.
-  let tipping = null, users = null;
+  // state-only backup rather than nothing at all. Extended to also
+  // cover everything added since this was first built that lives
+  // OUTSIDE state entirely — Group Chat had no backup path at all
+  // (meaning Clear Chat was genuinely irreversible), same gap for
+  // Syndy's Book, Leg Bets, and Acts of God history.
+  let tipping = null, users = null, groupChat = null, predictionMarkets = null, legBets = null, predictionMarketReserve = null, actsOfGodHistory = null;
   try{
-    const [tippingRes, usersRes] = await Promise.all([
+    const [tippingRes, usersRes, groupChatRes, marketsRes, legBetsRes, reserveRes, aogRes] = await Promise.all([
       authedFetch('/tipping.json'),
-      authedFetch('/users.json')
+      authedFetch('/users.json'),
+      authedFetch('/groupChat.json'),
+      authedFetch('/predictionMarkets.json'),
+      authedFetch('/legBets.json'),
+      authedFetch('/predictionMarketReserve.json'),
+      authedFetch('/actsOfGod/history.json'),
     ]);
     tipping = await tippingRes.json();
     users = await usersRes.json();
+    groupChat = await groupChatRes.json();
+    predictionMarkets = await marketsRes.json();
+    legBets = await legBetsRes.json();
+    predictionMarketReserve = await reserveRes.json();
+    actsOfGodHistory = await aogRes.json();
   }catch(e){}
 
-  const backup = { ...state, __tipping: tipping, __users: users, __exportedAt: new Date().toISOString() };
+  const backup = {
+    ...state, __tipping: tipping, __users: users, __groupChat: groupChat,
+    __predictionMarkets: predictionMarkets, __legBets: legBets,
+    __predictionMarketReserve: predictionMarketReserve, __actsOfGodHistory: actsOfGodHistory,
+    __exportedAt: new Date().toISOString(),
+  };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
