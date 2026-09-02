@@ -798,6 +798,25 @@ async function applyCasinoPotFine(amount, periodKey, reason){
   }catch(e){}
 }
 
+// Tracks each person's OWN contribution to pot fines, separate from the
+// pot-level total above — per request, so a member's profile can show
+// "fines caused since this feature launched" rather than deriving a
+// misleading figure from their whole-season leg-loss count (which
+// includes everything from before fines existed at all). This path is
+// brand new and starts empty for everyone, so it satisfies "start from
+// now" simply by never having anything older in it — no reset needed.
+async function bumpFineHistory(uid, field, delta){
+  if(!uid || !delta) return;
+  try{
+    const res = await authedFetch(`/casinoPot/fineHistory/${uid}/${field}.json`);
+    const current = res.ok ? ((await res.json()) || 0) : 0;
+    const next = Math.max(0, current + delta);
+    await authedFetch(`/casinoPot/fineHistory/${uid}/${field}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
+    });
+  }catch(e){}
+}
+
 // ================= Auth =================
 const FB_API_KEY = 'AIzaSyAOxWjx7kwaEKN3Ab29kObrTZBIEyUhKfI';
 const ADMIN_EMAIL = 'mlsynd00@gmail.com';
@@ -3076,6 +3095,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     beforeRanked.forEach((m, i) => { prevRankMap[m.name] = i + 1; });
 
     const groupEntries = {};
+    const legLossesByUid = {}; // uid -> count, captured here (not derived from names later) since m.linkedUid is right here already
     state.members.forEach((m, idx) => {
       const oddsEl = document.querySelector(`.wk-odds[data-idx="${idx}"]`);
       if(!oddsEl) return; // this person was picked for an individual bet this week — skip group
@@ -3094,6 +3114,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       if(odds !== null && odds > 0 && result !== 'MIA'){ m.oddsSum += odds; m.oddsCount += 1; }
 
       groupEntries[m.name] = { legs, odds, result: result || null };
+      if(result === 'Loss' && legs > 0 && m.linkedUid) legLossesByUid[m.linkedUid] = (legLossesByUid[m.linkedUid] || 0) + legs;
     });
 
     // Safeguard against the exact class of bug that silently dropped
@@ -3259,10 +3280,18 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     const potFineAmount = losingLegCount * CASINO_POT_LEG_LOSS_FINE;
     const potFinePeriodKey = casinoPotPeriodKey();
     if(potFineAmount > 0) await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi leg loss fine (${losingLegCount} leg${losingLegCount === 1 ? '' : 's'})`);
+    // Per-person breakdown of the same fine, for profile display — kept
+    // as a genuinely separate write from the pot-level total above, not
+    // derived from it, so each person's own record starts clean from
+    // whenever this shipped rather than reflecting a whole season of
+    // leg losses that predate fines existing at all.
+    for(const [uid, count] of Object.entries(legLossesByUid)){
+      await bumpFineHistory(uid, 'groupMultiLegs', count);
+    }
 
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, legLossesByUid });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -3299,6 +3328,11 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   const last = state.history.pop();
   if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
   if(last.potFineAmount > 0 && last.potFinePeriodKey) await applyCasinoPotFine(-last.potFineAmount, last.potFinePeriodKey, 'Group Multi leg loss fine (reversed — week undone)');
+  if(last.legLossesByUid){
+    for(const [uid, count] of Object.entries(last.legLossesByUid)){
+      await bumpFineHistory(uid, 'groupMultiLegs', -count);
+    }
+  }
   Object.entries(last.groupEntries || {}).forEach(([name, e]) => {
     const m = state.members.find(mm => mm.name === name);
     if(!m) return;
