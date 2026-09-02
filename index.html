@@ -771,6 +771,9 @@ const DATA_PATH = '/state.json';
 // compute for the same instant.
 const CASINO_POT_TIMEZONE = 'Australia/Melbourne';
 const CASINO_POT_LEG_LOSS_FINE = 250000;
+const CASINO_POT_MIA_LEG_FINE = 50000;
+const CASINO_POT_LOW_ODDS_FINE = 10000;
+const CASINO_POT_LOW_ODDS_THRESHOLD = 1.22; // a leg priced BELOW this counts as "too safe" — exactly 1.22 does not trigger it
 function casinoPotPeriodKey(d){
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CASINO_POT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d || new Date());
   const y = parts.find(p => p.type === 'year').value;
@@ -3096,6 +3099,8 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
 
     const groupEntries = {};
     const legLossesByUid = {}; // uid -> count, captured here (not derived from names later) since m.linkedUid is right here already
+    const miaLegsByUid = {}; // uid -> count of MIA (no-show) legs this week
+    const lowOddsLegsByUid = {}; // uid -> count of legs actually placed at odds below CASINO_POT_LOW_ODDS_THRESHOLD
     state.members.forEach((m, idx) => {
       const oddsEl = document.querySelector(`.wk-odds[data-idx="${idx}"]`);
       if(!oddsEl) return; // this person was picked for an individual bet this week — skip group
@@ -3115,6 +3120,16 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
 
       groupEntries[m.name] = { legs, odds, result: result || null };
       if(result === 'Loss' && legs > 0 && m.linkedUid) legLossesByUid[m.linkedUid] = (legLossesByUid[m.linkedUid] || 0) + legs;
+      // MIA — a leg they were assigned but never actually placed. Fined
+      // regardless of what a "win" or "loss" would have looked like,
+      // since there isn't one — this is purely a no-show penalty.
+      if(result === 'MIA' && m.linkedUid) miaLegsByUid[m.linkedUid] = (miaLegsByUid[m.linkedUid] || 0) + 1;
+      // Low-odds — a real leg that WAS placed (never MIA), priced under
+      // the threshold. Applies regardless of Win/Loss/Void: this fines
+      // the CHOICE to tip too safe, not the outcome of having done so.
+      if(result !== 'MIA' && legs > 0 && odds !== null && odds > 0 && odds < CASINO_POT_LOW_ODDS_THRESHOLD && m.linkedUid){
+        lowOddsLegsByUid[m.linkedUid] = (lowOddsLegsByUid[m.linkedUid] || 0) + 1;
+      }
     });
 
     // Safeguard against the exact class of bug that silently dropped
@@ -3268,7 +3283,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     });
     await applyXPAwards(xpAwarded);
 
-    // Casino Pot fine, per request — separate from and on top of the
+    // Casino Pot fines, per request — separate from and on top of the
     // individual -100 XP leg penalty above. Comes out of the shared pot,
     // not any individual's balance. potFinePeriodKey is captured NOW
     // (the period this week was actually saved in) and stored on the
@@ -3277,21 +3292,35 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // rolled into a different period by then — reversing against
     // whatever period is "current" at undo-time would be wrong.
     const losingLegCount = Object.values(groupEntries).filter(e => e.result === 'Loss' && e.legs > 0).length;
-    const potFineAmount = losingLegCount * CASINO_POT_LEG_LOSS_FINE;
+    const miaLegCount = Object.values(groupEntries).filter(e => e.result === 'MIA').length;
+    const lowOddsLegCount = Object.values(groupEntries).filter(e => e.result !== 'MIA' && e.legs > 0 && e.odds != null && e.odds > 0 && e.odds < CASINO_POT_LOW_ODDS_THRESHOLD).length;
+    const potFineAmount = (losingLegCount * CASINO_POT_LEG_LOSS_FINE) + (miaLegCount * CASINO_POT_MIA_LEG_FINE) + (lowOddsLegCount * CASINO_POT_LOW_ODDS_FINE);
     const potFinePeriodKey = casinoPotPeriodKey();
-    if(potFineAmount > 0) await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi leg loss fine (${losingLegCount} leg${losingLegCount === 1 ? '' : 's'})`);
-    // Per-person breakdown of the same fine, for profile display — kept
-    // as a genuinely separate write from the pot-level total above, not
+    if(potFineAmount > 0){
+      const parts = [];
+      if(losingLegCount > 0) parts.push(`${losingLegCount} loss${losingLegCount === 1 ? '' : 'es'}`);
+      if(miaLegCount > 0) parts.push(`${miaLegCount} MIA`);
+      if(lowOddsLegCount > 0) parts.push(`${lowOddsLegCount} under $${CASINO_POT_LOW_ODDS_THRESHOLD}`);
+      await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi fines (${parts.join(', ')})`);
+    }
+    // Per-person breakdown of the same fines, for profile display — kept
+    // as genuinely separate writes from the pot-level total above, not
     // derived from it, so each person's own record starts clean from
     // whenever this shipped rather than reflecting a whole season of
-    // leg losses that predate fines existing at all.
+    // history that predates fines existing at all.
     for(const [uid, count] of Object.entries(legLossesByUid)){
       await bumpFineHistory(uid, 'groupMultiLegs', count);
+    }
+    for(const [uid, count] of Object.entries(miaLegsByUid)){
+      await bumpFineHistory(uid, 'groupMultiMIA', count);
+    }
+    for(const [uid, count] of Object.entries(lowOddsLegsByUid)){
+      await bumpFineHistory(uid, 'groupMultiLowOdds', count);
     }
 
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, legLossesByUid });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, legLossesByUid, miaLegsByUid, lowOddsLegsByUid });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -3327,10 +3356,20 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
 
   const last = state.history.pop();
   if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
-  if(last.potFineAmount > 0 && last.potFinePeriodKey) await applyCasinoPotFine(-last.potFineAmount, last.potFinePeriodKey, 'Group Multi leg loss fine (reversed — week undone)');
+  if(last.potFineAmount > 0 && last.potFinePeriodKey) await applyCasinoPotFine(-last.potFineAmount, last.potFinePeriodKey, 'Group Multi fines (reversed — week undone)');
   if(last.legLossesByUid){
     for(const [uid, count] of Object.entries(last.legLossesByUid)){
       await bumpFineHistory(uid, 'groupMultiLegs', -count);
+    }
+  }
+  if(last.miaLegsByUid){
+    for(const [uid, count] of Object.entries(last.miaLegsByUid)){
+      await bumpFineHistory(uid, 'groupMultiMIA', -count);
+    }
+  }
+  if(last.lowOddsLegsByUid){
+    for(const [uid, count] of Object.entries(last.lowOddsLegsByUid)){
+      await bumpFineHistory(uid, 'groupMultiLowOdds', -count);
     }
   }
   Object.entries(last.groupEntries || {}).forEach(([name, e]) => {
