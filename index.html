@@ -771,8 +771,8 @@ const DATA_PATH = '/state.json';
 // compute for the same instant.
 const CASINO_POT_TIMEZONE = 'Australia/Melbourne';
 const CASINO_POT_LEG_LOSS_FINE = 250000;
-const CASINO_POT_MIA_LEG_FINE = 50000;
-const CASINO_POT_LOW_ODDS_FINE = 10000;
+const CASINO_POT_MIA_LEG_FINE = 200000;
+const CASINO_POT_LOW_ODDS_FINE = 150000;
 const CASINO_POT_LOW_ODDS_THRESHOLD = 1.22; // a leg priced BELOW this counts as "too safe" — exactly 1.22 does not trigger it
 function casinoPotPeriodKey(d){
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CASINO_POT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d || new Date());
