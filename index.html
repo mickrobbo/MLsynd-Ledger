@@ -760,6 +760,44 @@ let state = null;
 const FIREBASE_URL = 'https://mlsynd-default-rtdb.firebaseio.com';
 const DATA_PATH = '/state.json';
 
+// ---- Casino Pot fine mechanism ----
+// Group multi leg losses now fine the shared Casino Pot directly (per
+// request — separate from and on top of the existing -100 XP per losing
+// leg penalty to the individual, which is untouched below). Identical
+// period-key logic to the Dashboard's own casinoPotPeriodKey(), duplicated
+// here rather than shared since these are two separate deployed files —
+// kept byte-for-byte matching on purpose so a leg saved here always lands
+// in the exact same period bucket the Dashboard/scheduled function would
+// compute for the same instant.
+const CASINO_POT_TIMEZONE = 'Australia/Melbourne';
+const CASINO_POT_LEG_LOSS_FINE = 250000;
+function casinoPotPeriodKey(d){
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CASINO_POT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d || new Date());
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  const day = Number(parts.find(p => p.type === 'day').value);
+  const periodStartDay = day <= 15 ? '01' : '16';
+  return `${y}-${m}-${periodStartDay}`;
+}
+// Simple read-add-write, not the ETag-locked version the scheduled
+// distribution function needs — that one guards against genuinely
+// concurrent automated triggers firing at once, which was the actual
+// disaster earlier. This only ever runs once, synchronously, from a
+// single admin explicitly clicking Save Week — there's no concurrent-
+// write scenario here to guard against, so a lock would be complexity
+// with no real risk behind it.
+async function applyCasinoPotFine(amount, periodKey, reason){
+  if(!amount) return;
+  try{
+    const res = await authedFetch(`/casinoPot/months/${periodKey}/fines.json`);
+    const current = res.ok ? ((await res.json()) || 0) : 0;
+    const next = Math.max(0, current + amount);
+    await authedFetch(`/casinoPot/months/${periodKey}/fines.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
+    });
+  }catch(e){}
+}
+
 // ================= Auth =================
 const FB_API_KEY = 'AIzaSyAOxWjx7kwaEKN3Ab29kObrTZBIEyUhKfI';
 const ADMIN_EMAIL = 'mlsynd00@gmail.com';
@@ -3209,9 +3247,22 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     });
     await applyXPAwards(xpAwarded);
 
+    // Casino Pot fine, per request — separate from and on top of the
+    // individual -100 XP leg penalty above. Comes out of the shared pot,
+    // not any individual's balance. potFinePeriodKey is captured NOW
+    // (the period this week was actually saved in) and stored on the
+    // history record specifically so Undo Week reverses it against that
+    // SAME period later, even if the undo happens after the calendar has
+    // rolled into a different period by then — reversing against
+    // whatever period is "current" at undo-time would be wrong.
+    const losingLegCount = Object.values(groupEntries).filter(e => e.result === 'Loss' && e.legs > 0).length;
+    const potFineAmount = losingLegCount * CASINO_POT_LEG_LOSS_FINE;
+    const potFinePeriodKey = casinoPotPeriodKey();
+    if(potFineAmount > 0) await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi leg loss fine (${losingLegCount} leg${losingLegCount === 1 ? '' : 's'})`);
+
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -3247,6 +3298,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
 
   const last = state.history.pop();
   if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
+  if(last.potFineAmount > 0 && last.potFinePeriodKey) await applyCasinoPotFine(-last.potFineAmount, last.potFinePeriodKey, 'Group Multi leg loss fine (reversed — week undone)');
   Object.entries(last.groupEntries || {}).forEach(([name, e]) => {
     const m = state.members.find(mm => mm.name === name);
     if(!m) return;
