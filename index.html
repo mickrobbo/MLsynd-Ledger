@@ -770,9 +770,9 @@ const DATA_PATH = '/state.json';
 // in the exact same period bucket the Dashboard/scheduled function would
 // compute for the same instant.
 const CASINO_POT_TIMEZONE = 'Australia/Melbourne';
-const CASINO_POT_LEG_LOSS_FINE = 250000;
-const CASINO_POT_MIA_LEG_FINE = 200000;
-const CASINO_POT_LOW_ODDS_FINE = 150000;
+const CASINO_POT_LEG_LOSS_FINE = 80000;
+const CASINO_POT_MIA_LEG_FINE = 60000;
+const CASINO_POT_LOW_ODDS_FINE = 8000; // demoted from the "negligence" tier per request — betting safe is a real strategic choice, not the same as not showing up at all, so this is now a token amount rather than a genuine deterrent
 const CASINO_POT_LOW_ODDS_THRESHOLD = 1.22; // a leg priced BELOW this counts as "too safe" — exactly 1.22 does not trigger it
 function casinoPotPeriodKey(d){
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CASINO_POT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d || new Date());
@@ -816,6 +816,52 @@ async function bumpFineHistory(uid, field, delta){
     const next = Math.max(0, current + delta);
     await authedFetch(`/casinoPot/fineHistory/${uid}/${field}.json`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
+    });
+  }catch(e){}
+}
+
+// The personal 10% share of a Group Multi fine, per request — previously
+// 100% went to the shared pot with zero individual impact. Floored at
+// zero rather than allowed to go negative: a low balance just means this
+// specific fine collects less than its full target, not that the account
+// goes into debt. Returns the amount actually taken (which can be LESS
+// than requested if the balance couldn't cover it), specifically so the
+// caller can store that real figure on the week's history record — Undo
+// Week needs to refund exactly what was taken, not a freshly-recomputed
+// 10% that could drift if the balance has changed since.
+async function applyFinePersonalShare(uid, targetAmount, reason){
+  if(!uid || !targetAmount) return 0;
+  try{
+    const res = await authedFetch(`/xp/${uid}/balance.json`);
+    const current = (await res.json()) || 0;
+    const actual = Math.min(targetAmount, Math.max(0, current));
+    if(actual <= 0) return 0;
+    const next = current - actual;
+    await authedFetch(`/xp/${uid}/balance.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
+    });
+    await authedFetch(`/xp/${uid}/log.json`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: -actual, reason, balanceAfter: next, ts: Date.now() })
+    });
+    return actual;
+  }catch(e){ return 0; }
+}
+// Reverses a stored personal deduction for Undo Week — refunds the EXACT
+// amount previously taken (stored on the history record), not a
+// recomputed 10%, since the person's balance may have moved since.
+async function refundFinePersonalShare(uid, amount, reason){
+  if(!uid || !amount) return;
+  try{
+    const res = await authedFetch(`/xp/${uid}/balance.json`);
+    const current = (await res.json()) || 0;
+    const next = current + amount;
+    await authedFetch(`/xp/${uid}/balance.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
+    });
+    await authedFetch(`/xp/${uid}/log.json`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, reason, balanceAfter: next, ts: Date.now() })
     });
   }catch(e){}
 }
@@ -3262,11 +3308,17 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // store prevRank on each member for movement display next render
     state.members.forEach(m => { m.prevRank = prevRankMap[m.name] || null; });
 
-    // XP awards: 150 XP per $1 won on an individual bet, 350 XP per
-    // winning group leg, -100 XP per LOSING group leg (a real change from
+    // XP awards: 1,500 XP per $1 won on an individual bet, 3,500 XP per
+    // winning group leg, -1,000 XP per LOSING group leg (a real change from
     // the original "XP only ever goes up from betting" design — losses
-    // now cost something here too, not just in the Casino games). A Void
-    // or no bet (MIA) that week costs nothing either way — groupEntries
+    // now cost something here too, not just in the Casino games). All
+    // three 10x'd from their original 150/350/100 to keep pace with the
+    // much larger fine amounts introduced later (50,000-250,000 XP per
+    // fine) — the old earn rates had become trivial by comparison. Kept
+    // in exact sync with XP_RATES in the Dashboard app, which the same
+    // request updated — this file has its own separate hardcoded copy
+    // since Ledger and Dashboard are two independently deployed apps. A
+    // Void or no bet (MIA) that week costs nothing either way — groupEntries
     // only ever gets a Win or Loss branch below, so those two results
     // simply never add anything to xpAwarded, same as always. Individual
     // bet losses still aren't penalised — only the group multi leg side
@@ -3275,27 +3327,54 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // amounts later, same pattern as every other stat on this record.
     const xpAwarded = {};
     Object.entries(individualEntries).forEach(([name, e]) => {
-      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 150);
+      if(e.pl > 0) xpAwarded[name] = (xpAwarded[name] || 0) + Math.round(e.pl * 1500);
     });
     Object.entries(groupEntries).forEach(([name, e]) => {
-      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 350);
-      else if(e.result === 'Loss' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) - (e.legs * 100);
+      if(e.result === 'Win' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) + (e.legs * 3500);
+      else if(e.result === 'Loss' && e.legs > 0) xpAwarded[name] = (xpAwarded[name] || 0) - (e.legs * 1000);
     });
     await applyXPAwards(xpAwarded);
 
     // Casino Pot fines, per request — separate from and on top of the
-    // individual -100 XP leg penalty above. Comes out of the shared pot,
-    // not any individual's balance. potFinePeriodKey is captured NOW
-    // (the period this week was actually saved in) and stored on the
-    // history record specifically so Undo Week reverses it against that
-    // SAME period later, even if the undo happens after the calendar has
-    // rolled into a different period by then — reversing against
-    // whatever period is "current" at undo-time would be wrong.
+    // individual -1,000 XP leg penalty above. 90% still goes to the
+    // shared pot exactly as before; the remaining 10% now comes off each
+    // fined person's OWN balance directly (a real change from the
+    // original "fines only ever hit the pot" design — restores some
+    // individual stake without the pot losing its own share). Computed
+    // per-person first (using the SAME legLossesByUid/miaLegsByUid/
+    // lowOddsLegsByUid maps already built for the history breakdown
+    // below) rather than as one bulk total, since the personal share has
+    // to be deducted from each specific person's own balance, not
+    // something that can be done in aggregate. potFinePeriodKey is
+    // captured NOW (the period this week was actually saved in) and
+    // stored on the history record specifically so Undo Week reverses it
+    // against that SAME period later, even if the undo happens after the
+    // calendar has rolled into a different period by then — reversing
+    // against whatever period is "current" at undo-time would be wrong.
     const losingLegCount = Object.values(groupEntries).filter(e => e.result === 'Loss' && e.legs > 0).length;
     const miaLegCount = Object.values(groupEntries).filter(e => e.result === 'MIA').length;
     const lowOddsLegCount = Object.values(groupEntries).filter(e => e.result !== 'MIA' && e.legs > 0 && e.odds != null && e.odds > 0 && e.odds < CASINO_POT_LOW_ODDS_THRESHOLD).length;
-    const potFineAmount = (losingLegCount * CASINO_POT_LEG_LOSS_FINE) + (miaLegCount * CASINO_POT_MIA_LEG_FINE) + (lowOddsLegCount * CASINO_POT_LOW_ODDS_FINE);
     const potFinePeriodKey = casinoPotPeriodKey();
+
+    const perPersonFineTotal = {};
+    for(const [uid, count] of Object.entries(legLossesByUid)){
+      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_LEG_LOSS_FINE;
+    }
+    for(const [uid, count] of Object.entries(miaLegsByUid)){
+      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_MIA_LEG_FINE;
+    }
+    for(const [uid, count] of Object.entries(lowOddsLegsByUid)){
+      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_LOW_ODDS_FINE;
+    }
+    let potFineAmount = 0;
+    const personalFineDeductions = {}; // uid -> actual amount taken, stored on history for Undo Week to refund precisely
+    for(const [uid, fullAmount] of Object.entries(perPersonFineTotal)){
+      const potShare = Math.round(fullAmount * 0.9);
+      const personalTarget = fullAmount - potShare;
+      potFineAmount += potShare;
+      const actualPersonal = await applyFinePersonalShare(uid, personalTarget, 'Group Multi Fine (personal share)');
+      if(actualPersonal > 0) personalFineDeductions[uid] = actualPersonal;
+    }
     if(potFineAmount > 0){
       const parts = [];
       if(losingLegCount > 0) parts.push(`${losingLegCount} loss${losingLegCount === 1 ? '' : 'es'}`);
@@ -3320,7 +3399,7 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
 
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, legLossesByUid, miaLegsByUid, lowOddsLegsByUid });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, personalFineDeductions, legLossesByUid, miaLegsByUid, lowOddsLegsByUid });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -3357,6 +3436,14 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   const last = state.history.pop();
   if(last.xpAwarded) await applyXPAwards(last.xpAwarded, true);
   if(last.potFineAmount > 0 && last.potFinePeriodKey) await applyCasinoPotFine(-last.potFineAmount, last.potFinePeriodKey, 'Group Multi fines (reversed — week undone)');
+  // Refunds the EXACT personal amounts taken (stored on the history
+  // record at save time), not a recomputed 10% — see the long comment on
+  // refundFinePersonalShare for why that distinction matters.
+  if(last.personalFineDeductions){
+    for(const [uid, amount] of Object.entries(last.personalFineDeductions)){
+      await refundFinePersonalShare(uid, amount, 'Group Multi Fine (personal share — reversed, week undone)');
+    }
+  }
   if(last.legLossesByUid){
     for(const [uid, count] of Object.entries(last.legLossesByUid)){
       await bumpFineHistory(uid, 'groupMultiLegs', -count);
