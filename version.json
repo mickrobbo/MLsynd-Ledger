@@ -1,0 +1,7 @@
+{
+  "version": "2026-09-02.44",
+  "date": "2026-09-02",
+  "changes": [
+    "Fixed the Activity tab showing only the reason text with the XP amount completely missing \u2014 the amount column now has guaranteed reserved space and can never be squeezed out, on every profile."
+  ]
+}
