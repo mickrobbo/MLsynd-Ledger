@@ -820,6 +820,27 @@ async function bumpFineHistory(uid, field, delta){
   }catch(e){}
 }
 
+// One real, complete event per fine incident — the actual full amount
+// (90% pot + 10% personal combined, not just the personal fragment that
+// happens to get its own log entry in the person's XP log), for the
+// Members > Fines event log to display. Neither fineHistory (a running
+// count, no amounts) nor the pot's own bulk fines total (one combined
+// number for the whole week, not per-person or per-category) could
+// answer "show me each fine as it happened" — this is genuinely new,
+// dedicated storage for that specific purpose. Capped client-side to the
+// most recent 100 when read, same as the Floor feed and Activity log —
+// nothing here trims server-side, so old entries simply stay unless
+// pruned separately later.
+async function logFineEvent(uid, name, category, amount){
+  if(!uid || !amount) return;
+  try{
+    await authedFetch('/casinoPot/fineEvents.json', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, name, category, amount, ts: Date.now() })
+    });
+  }catch(e){}
+}
+
 // The personal 10% share of a Group Multi fine, per request — previously
 // 100% went to the shared pot with zero individual impact. Floored at
 // zero rather than allowed to go negative: a low balance just means this
@@ -3389,12 +3410,18 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     // history that predates fines existing at all.
     for(const [uid, count] of Object.entries(legLossesByUid)){
       await bumpFineHistory(uid, 'groupMultiLegs', count);
+      const nm = state.members.find(m => m.linkedUid === uid);
+      await logFineEvent(uid, nm ? nm.name : uid, `Losing Leg${count > 1 ? ` ×${count}` : ''}`, count * CASINO_POT_LEG_LOSS_FINE);
     }
     for(const [uid, count] of Object.entries(miaLegsByUid)){
       await bumpFineHistory(uid, 'groupMultiMIA', count);
+      const nm = state.members.find(m => m.linkedUid === uid);
+      await logFineEvent(uid, nm ? nm.name : uid, `MIA Leg${count > 1 ? ` ×${count}` : ''}`, count * CASINO_POT_MIA_LEG_FINE);
     }
     for(const [uid, count] of Object.entries(lowOddsLegsByUid)){
       await bumpFineHistory(uid, 'groupMultiLowOdds', count);
+      const nm = state.members.find(m => m.linkedUid === uid);
+      await logFineEvent(uid, nm ? nm.name : uid, `Under $${CASINO_POT_LOW_ODDS_THRESHOLD} Leg${count > 1 ? ` ×${count}` : ''}`, count * CASINO_POT_LOW_ODDS_FINE);
     }
 
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
