@@ -843,30 +843,29 @@ async function logFineEvent(uid, name, category, amount){
 }
 
 // The personal 10% share of a Group Multi fine, per request — previously
-// 100% went to the shared pot with zero individual impact. Floored at
-// zero rather than allowed to go negative: a low balance just means this
-// specific fine collects less than its full target, not that the account
-// goes into debt. Returns the amount actually taken (which can be LESS
-// than requested if the balance couldn't cover it), specifically so the
-// caller can store that real figure on the week's history record — Undo
-// Week needs to refund exactly what was taken, not a freshly-recomputed
-// 10% that could drift if the balance has changed since.
+// 100% went to the shared pot with zero individual impact. Per a later,
+// explicit follow-up request, this NO LONGER floors at zero — the full
+// target amount is always deducted, even if it pushes the balance
+// negative. Accumulated fines with a low balance are meant to actually
+// show as debt now, not just collect a reduced amount. Still returns the
+// actual amount taken (now always equal to targetAmount, never less) so
+// the caller can store it on the week's history record for Undo Week to
+// reverse precisely — kept the same return contract deliberately, so
+// nothing calling this needed to change even though the floor is gone.
 async function applyFinePersonalShare(uid, targetAmount, reason){
   if(!uid || !targetAmount) return 0;
   try{
     const res = await authedFetch(`/xp/${uid}/balance.json`);
     const current = (await res.json()) || 0;
-    const actual = Math.min(targetAmount, Math.max(0, current));
-    if(actual <= 0) return 0;
-    const next = current - actual;
+    const next = current - targetAmount;
     await authedFetch(`/xp/${uid}/balance.json`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next)
     });
     await authedFetch(`/xp/${uid}/log.json`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: -actual, reason, balanceAfter: next, ts: Date.now() })
+      body: JSON.stringify({ amount: -targetAmount, reason, balanceAfter: next, ts: Date.now() })
     });
-    return actual;
+    return targetAmount;
   }catch(e){ return 0; }
 }
 // Reverses a stored personal deduction for Undo Week — refunds the EXACT
