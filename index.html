@@ -773,6 +773,7 @@ const CASINO_POT_TIMEZONE = 'Australia/Melbourne';
 const CASINO_POT_LEG_LOSS_FINE = 80000;
 const CASINO_POT_MIA_LEG_FINE = 60000;
 const CASINO_POT_LOW_ODDS_FINE = 8000; // demoted from the "negligence" tier per request — betting safe is a real strategic choice, not the same as not showing up at all, so this is now a token amount rather than a genuine deterrent
+const CASINO_POT_INDIVIDUAL_LOSS_FINE = 100000; // genuinely separate category from Group Multi — an Individual bet, per explicit clarification. Excludes the SGM Bonus field entirely (that's already excluded from the person's normal indLoss tally, since it's promotional, not real money staked — same reasoning the app already applies to SGM Bonus everywhere else)
 const CASINO_POT_LOW_ODDS_THRESHOLD = 1.22; // a leg priced BELOW this counts as "too safe" — exactly 1.22 does not trigger it
 function casinoPotPeriodKey(d){
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CASINO_POT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d || new Date());
@@ -3311,6 +3312,20 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       }
     });
 
+    // Individual bet losses, converted from name-keyed (individualEntries'
+    // own indexing) to uid-keyed, matching the convention every other
+    // fine map already uses. indLoss already correctly excludes the SGM
+    // Bonus field — that's tracked entirely separately (wib-sgm-result,
+    // not part of indWin/indLoss at all) since it was never real money
+    // staked, same reasoning the app already applies to it everywhere.
+    const individualLossesByUid = {};
+    Object.entries(individualEntries).forEach(([name, e]) => {
+      if(e.indLoss > 0){
+        const m = state.members.find(mm => mm.name === name);
+        if(m && m.linkedUid) individualLossesByUid[m.linkedUid] = e.indLoss;
+      }
+    });
+
     const group = {
       lottoOut: parseFloat(document.getElementById('gLottoOut').value) || 0,
       lottoRet: parseFloat(document.getElementById('gLottoRet').value) || 0,
@@ -3377,31 +3392,52 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
     const lowOddsLegCount = Object.values(groupEntries).filter(e => e.result !== 'MIA' && e.legs > 0 && e.odds != null && e.odds > 0 && e.odds < CASINO_POT_LOW_ODDS_THRESHOLD).length;
     const potFinePeriodKey = casinoPotPeriodKey();
 
-    const perPersonFineTotal = {};
+    // Group Multi and Individual Bet fines kept as two genuinely separate
+    // totals per person (not merged into one), since they're two
+    // different categories and the personal-share log entry needs an
+    // accurate label for each — mixing an Individual Bet fine into a
+    // "Group Multi Fine" log line would just be wrong. Both still
+    // contribute to the SAME shared pot total below; only the personal
+    // deduction and its label stay split.
+    const groupMultiFineByUid = {};
     for(const [uid, count] of Object.entries(legLossesByUid)){
-      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_LEG_LOSS_FINE;
+      groupMultiFineByUid[uid] = (groupMultiFineByUid[uid] || 0) + count * CASINO_POT_LEG_LOSS_FINE;
     }
     for(const [uid, count] of Object.entries(miaLegsByUid)){
-      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_MIA_LEG_FINE;
+      groupMultiFineByUid[uid] = (groupMultiFineByUid[uid] || 0) + count * CASINO_POT_MIA_LEG_FINE;
     }
     for(const [uid, count] of Object.entries(lowOddsLegsByUid)){
-      perPersonFineTotal[uid] = (perPersonFineTotal[uid] || 0) + count * CASINO_POT_LOW_ODDS_FINE;
+      groupMultiFineByUid[uid] = (groupMultiFineByUid[uid] || 0) + count * CASINO_POT_LOW_ODDS_FINE;
     }
+    const individualBetFineByUid = {};
+    for(const [uid, count] of Object.entries(individualLossesByUid)){
+      individualBetFineByUid[uid] = count * CASINO_POT_INDIVIDUAL_LOSS_FINE;
+    }
+
     let potFineAmount = 0;
-    const personalFineDeductions = {}; // uid -> actual amount taken, stored on history for Undo Week to refund precisely
-    for(const [uid, fullAmount] of Object.entries(perPersonFineTotal)){
+    const personalFineDeductions = {}; // uid -> actual TOTAL amount taken across both categories combined, stored on history for Undo Week to refund precisely
+    for(const [uid, fullAmount] of Object.entries(groupMultiFineByUid)){
       const potShare = Math.round(fullAmount * 0.9);
       const personalTarget = fullAmount - potShare;
       potFineAmount += potShare;
       const actualPersonal = await applyFinePersonalShare(uid, personalTarget, 'Group Multi Fine (personal share)');
-      if(actualPersonal > 0) personalFineDeductions[uid] = actualPersonal;
+      if(actualPersonal > 0) personalFineDeductions[uid] = (personalFineDeductions[uid] || 0) + actualPersonal;
+    }
+    for(const [uid, fullAmount] of Object.entries(individualBetFineByUid)){
+      const potShare = Math.round(fullAmount * 0.9);
+      const personalTarget = fullAmount - potShare;
+      potFineAmount += potShare;
+      const actualPersonal = await applyFinePersonalShare(uid, personalTarget, 'Individual Bet Fine (personal share)');
+      if(actualPersonal > 0) personalFineDeductions[uid] = (personalFineDeductions[uid] || 0) + actualPersonal;
     }
     if(potFineAmount > 0){
       const parts = [];
       if(losingLegCount > 0) parts.push(`${losingLegCount} loss${losingLegCount === 1 ? '' : 'es'}`);
       if(miaLegCount > 0) parts.push(`${miaLegCount} MIA`);
       if(lowOddsLegCount > 0) parts.push(`${lowOddsLegCount} under $${CASINO_POT_LOW_ODDS_THRESHOLD}`);
-      await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi fines (${parts.join(', ')})`);
+      const individualLossTotalCount = Object.values(individualLossesByUid).reduce((s, c) => s + c, 0);
+      if(individualLossTotalCount > 0) parts.push(`${individualLossTotalCount} individual bet loss${individualLossTotalCount === 1 ? '' : 'es'}`);
+      await applyCasinoPotFine(potFineAmount, potFinePeriodKey, `Group Multi / Individual fines (${parts.join(', ')})`);
     }
     // Per-person breakdown of the same fines, for profile display — kept
     // as genuinely separate writes from the pot-level total above, not
@@ -3423,10 +3459,15 @@ document.getElementById('saveWeekBtn').addEventListener('click', async () => {
       const nm = state.members.find(m => m.linkedUid === uid);
       await logFineEvent(uid, nm ? nm.name : uid, `Under $${CASINO_POT_LOW_ODDS_THRESHOLD} Leg${count > 1 ? ` ×${count}` : ''}`, count * CASINO_POT_LOW_ODDS_FINE);
     }
+    for(const [uid, count] of Object.entries(individualLossesByUid)){
+      await bumpFineHistory(uid, 'individualBetLosses', count);
+      const nm = state.members.find(m => m.linkedUid === uid);
+      await logFineEvent(uid, nm ? nm.name : uid, `Losing Individual Bet${count > 1 ? ` ×${count}` : ''}`, count * CASINO_POT_INDIVIDUAL_LOSS_FINE);
+    }
 
     state.lastSnapshot = JSON.parse(JSON.stringify(state.members.map(m => ({ ...m }))));
     if(!Array.isArray(state.history)) state.history = [];
-    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, personalFineDeductions, legLossesByUid, miaLegsByUid, lowOddsLegsByUid });
+    state.history.push({ label: weekLabel, savedAt: Date.now(), group, groupEntries, individualEntries, xpAwarded, potFineAmount, potFinePeriodKey, personalFineDeductions, legLossesByUid, miaLegsByUid, lowOddsLegsByUid, individualLossesByUid });
 
     clearEntryInputs();
     safeRun('renderLeaderboard', renderLeaderboard);
@@ -3468,7 +3509,7 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   // refundFinePersonalShare for why that distinction matters.
   if(last.personalFineDeductions){
     for(const [uid, amount] of Object.entries(last.personalFineDeductions)){
-      await refundFinePersonalShare(uid, amount, 'Group Multi Fine (personal share — reversed, week undone)');
+      await refundFinePersonalShare(uid, amount, 'Group Multi / Individual Bet Fine (personal share — reversed, week undone)');
     }
   }
   if(last.legLossesByUid){
@@ -3484,6 +3525,11 @@ document.getElementById('undoWeekBtn').addEventListener('click', async () => {
   if(last.lowOddsLegsByUid){
     for(const [uid, count] of Object.entries(last.lowOddsLegsByUid)){
       await bumpFineHistory(uid, 'groupMultiLowOdds', -count);
+    }
+  }
+  if(last.individualLossesByUid){
+    for(const [uid, count] of Object.entries(last.individualLossesByUid)){
+      await bumpFineHistory(uid, 'individualBetLosses', -count);
     }
   }
   Object.entries(last.groupEntries || {}).forEach(([name, e]) => {
