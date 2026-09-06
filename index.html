@@ -274,13 +274,6 @@
   }
   .wib-placed-label.checked{ color:var(--win); }
 
-  pre#reportText{
-    background:#060A08; border:1px solid var(--line); border-radius:6px;
-    padding:12px; font-family:'IBM Plex Mono', monospace; font-size:12px;
-    white-space:pre-wrap; word-break:break-word; line-height:1.6; color: var(--chalk);
-    max-height: 420px; overflow-y:auto;
-  }
-
   .history-item{
     border-bottom:1px solid var(--line); padding:9px 0; font-size:12px;
     display:flex; justify-content:space-between; align-items:center; gap:10px;
@@ -476,16 +469,6 @@
         <div id="historyViewWrap" style="display:none;">
           <div id="historyArea"></div>
         </div>
-      </div>
-
-      <div class="panel">
-        <h2>Weekly report</h2>
-        <div class="row" style="margin-top:0;">
-          <button id="genReportBtn">Generate report</button>
-          <button id="copyReportBtn" class="secondary">Copy to clipboard</button>
-        </div>
-        <div class="status-msg" id="reportStatus"></div>
-        <pre id="reportText"></pre>
       </div>
 
       <div class="panel">
@@ -3618,73 +3601,6 @@ function renderHistory(){
   });
   area.innerHTML = html;
 }
-
-// ---------- Report ----------
-function generateReport(){
-  const ranked = rankedMembers('score');
-  const rankedByPl = rankedMembers('pl');
-  const plRankMap = {};
-  rankedByPl.forEach((m,i) => { plRankMap[m.name] = i+1; });
-
-  const lastWeekLabel = state.history.length ? state.history[state.history.length-1].label : 'Season to date';
-  const g = state.group;
-  const fin = computeSeasonFinancials();
-
-  let lines = [];
-  lines.push(`🏆 SYNDICATE LEDGER — ${lastWeekLabel}`);
-  lines.push('');
-  if(g.lottoOut || g.lottoRet || g.multiOut || g.multiRet || g.bonus){
-    lines.push('ROLLING BALANCE:');
-    lines.push(`Outlay $${(fin.outlay + fin.bonusPot).toFixed(2)} · Return $${fin.ret.toFixed(2)} · Profit/Loss ${fmtMoney(fin.profitLoss)}`);
-    lines.push(`Bank ${fmtMoney(fin.bank)} (dues collected $${fin.duesCollected.toFixed(2)} + P/L)`);
-    lines.push(`Bonus pot banked: $${fin.bonusPot.toFixed(2)} (end-of-year winner)`);
-    lines.push('');
-  }
-  const owedMembers = state.members.filter(m => m.duesOwed > 0).sort((a,b) => b.duesOwed - a.duesOwed);
-  if(owedMembers.length){
-    lines.push('MONEY OWED:');
-    owedMembers.forEach(m => { lines.push(`${m.name} — $${Math.round(m.duesOwed)} of $${Math.round(m.duesCommitment)}`); });
-    lines.push(`Total outstanding: $${Math.round(fin.duesOwedTotal)}`);
-    lines.push('');
-  }
-  lines.push('RANK BY DATA SCORE:');
-  ranked.forEach((m, i) => {
-    const rank = i + 1;
-    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-    let move = '–';
-    if(m.prevRank){
-      if(m.prevRank > rank) move = `▲${m.prevRank - rank}`;
-      else if(m.prevRank < rank) move = `▼${rank - m.prevRank}`;
-    }
-    lines.push(`${medal} ${m.name} — ${m.dataScore.toFixed(2)} pts (${move}) | P/L ${fmtMoney(m.pl)} | ${m.wins}-${m.losses}-${m.voids}`);
-  });
-  lines.push('');
-  lines.push('RANK BY P/L:');
-  rankedByPl.forEach((m, i) => {
-    lines.push(`${i+1}. ${m.name} — ${fmtMoney(m.pl)}`);
-  });
-
-  document.getElementById('reportText').textContent = lines.join('\n');
-}
-
-document.getElementById('genReportBtn').addEventListener('click', generateReport);
-document.getElementById('copyReportBtn').addEventListener('click', async () => {
-  const text = document.getElementById('reportText').textContent;
-  const status = document.getElementById('reportStatus');
-  if(!text){
-    status.className = 'status-msg error';
-    status.textContent = 'Generate the report first.';
-    return;
-  }
-  try{
-    await navigator.clipboard.writeText(text);
-    status.className = 'status-msg ok';
-    status.textContent = 'Copied — paste it straight into the group chat.';
-  }catch(e){
-    status.className = 'status-msg error';
-    status.textContent = 'Could not copy automatically — select and copy the text manually.';
-  }
-});
 
 // ---------- Tabs ----------
 function setActiveTab(tab){
