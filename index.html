@@ -1194,9 +1194,9 @@ async function getApprovedUsersCache(){
   return approvedUsersCache;
 }
 // Tipping-tier accounts don't see Board/Cash/Slips (no individual bets or
-// group multi legs to earn XP from there) — their only XP sources are the
-// weekly bonus and Tipping points, both handled entirely on the Dashboard
-// side. Cached per-uid so a big multi-person Save Week doesn't re-fetch.
+// group multi legs to earn XP from there) — their only XP source is
+// Tipping points, handled entirely on the Dashboard side. Cached per-uid
+// so a big multi-person Save Week doesn't re-fetch.
 const _tippingRoleCache = {};
 async function isUserTippingTier(uid){
   if(uid in _tippingRoleCache) return _tippingRoleCache[uid];
@@ -2951,9 +2951,9 @@ async function applyXPAwards(xpByName, reverse, reason){
     if(!amount) continue;
     const member = state.members.find(m => m.name === name);
     if(!member || !member.linkedUid) continue; // no linked account yet — can't credit a uid that doesn't exist
-    // Tipping-tier accounts only earn XP via the weekly bonus + Tipping
-    // points (both on the Dashboard side) — individual bet / group leg
-    // wins never credit them, even if they're still in the betting group.
+    // Tipping-tier accounts only earn XP via Tipping points (on the
+    // Dashboard side) — individual bet / group leg wins never credit
+    // them, even if they're still in the betting group.
     if(await isUserTippingTier(member.linkedUid)) continue;
     const delta = reverse ? -amount : amount;
     try{
@@ -2975,7 +2975,7 @@ async function applyXPAwards(xpByName, reverse, reason){
 // ---------- Give bonus XP (repeatable — everyone, or one specific person) ----------
 // Deliberately NOT routed through applyXPAwards — that function is keyed by
 // squad member name and skips tipping-tier accounts on purpose (their XP
-// only comes from the weekly bonus + Tipping points). This bonus is a flat,
+// only comes from Tipping points). This bonus is a flat,
 // role-agnostic giveaway tied to APPROVED UIDs in /users, the same list
 // the Admin — access panel reads, so it reaches tipping-only accounts too
 // even though they're not necessarily squad members with a linkedUid.
